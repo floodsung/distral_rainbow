@@ -99,7 +99,7 @@ class DistQNetwork(TFQNetwork):
         policy,values, dists = self.session.run(self.step_outs, feed_dict=feed)
         actions = np.random.choice(self.num_actions,p=policy[0])
         return {
-            'actions': actions,
+            'actions': [actions],
             'states': None,
             'policy':policy,
             'action_values': values,
@@ -110,7 +110,7 @@ class DistQNetwork(TFQNetwork):
         with tf.variable_scope(self.name, reuse=True):
             values = self.dist.mean(self.value_func(self.base(new_obses)))
         policies = self.policy_func(values)
-        entropy = - tf.reduce_sum(self.policy * tf.log(self.policy),axis=1)
+        entropy = self.entropy_func(values)
 
         with tf.variable_scope(target_net.name, reuse=True):
             target_preds = target_net.value_func(target_net.base(new_obses))
@@ -121,11 +121,11 @@ class DistQNetwork(TFQNetwork):
 
         tile_policies = tf.reshape(tf.tile(policies,multiples=(1,self.dist.num_atoms)),(tf.shape(policies)[0], self.num_actions, self.dist.num_atoms))
         target_preds = tf.reduce_sum(tf.exp(target_preds)*tile_policies,axis=1)
-        target_dists = self.dist.add_rewards(target_preds,rews, discounts,entropy)
+        target_dists = self.dist.add_rewards(target_preds,rews, discounts,entropy,self.tao)
         with tf.variable_scope(self.name, reuse=True):
             online_preds = self.value_func(self.base(obses))
             onlines = take_vector_elems(online_preds, actions)
-            return _kl_divergence(tf.stop_gradient(target_dists), onlines)
+            return _kl_divergence(tf.stop_gradient(target_dists), onlines),policies
 
     @property
     def input_dtype(self):
@@ -175,10 +175,14 @@ class DistQNetwork(TFQNetwork):
           A Tensor of shape [batch x actions].
 
         """
-        exp_values = tf.exp(1/self.tao * values_batch)
-        Z = tf.reduce_sum(exp_values,axis=1,keepdims=True)
-        policies = tf.div(exp_values,Z)
+        policies = tf.nn.softmax(1/self.tao * values_batch,axis=1)
         return policies
+    
+    def entropy_func(self,values_batch):
+        policies = tf.nn.softmax(1/self.tao * values_batch,axis=1)
+        log_policies = tf.nn.log_softmax(1/self.tao * values_batch,axis=1)
+        
+        return - tf.reduce_sum(policies * log_policies,axis=1)
 
     # pylint: disable=W0613
     def step_feed_dict(self, observations, states):
@@ -267,7 +271,7 @@ class ActionDist:
         probs = tf.exp(log_probs)
         return tf.reduce_sum(probs * tf.constant(self.atom_values(), dtype=probs.dtype), axis=-1)
 
-    def add_rewards(self, probs, rewards, discounts,entropy):
+    def add_rewards(self, probs, rewards, discounts,entropy,tao):
         """
         Compute new distributions after adding rewards to
         old distributions.
@@ -283,7 +287,8 @@ class ActionDist:
         """
         atom_rews = tf.tile(tf.constant([self.atom_values()], dtype=probs.dtype),
                             tf.stack([tf.shape(rewards)[0], 1]))
-        fuzzy_idxs = tf.expand_dims(rewards + self.tao * discounts * entropy, axis=1) + tf.expand_dims(discounts, axis=1) * atom_rews
+        fuzzy_idxs = tf.expand_dims(rewards + tao * discounts * entropy, axis=1) + tf.expand_dims(discounts, axis=1) * atom_rews
+        fuzzy_idxs = tf.clip_by_value(fuzzy_idxs,self.min_val,self.max_val)
         fuzzy_idxs = (fuzzy_idxs - self.min_val) / self._delta
 
         # If the position were exactly 0, rounding up

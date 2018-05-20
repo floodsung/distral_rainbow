@@ -34,12 +34,12 @@ def main():
         sess.run(tf.global_variables_initializer())
         online_network_variables = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="online")
         saver = tf.train.Saver(online_network_variables)
-        checkpoint = tf.train.get_checkpoint_state("./models")
-        if checkpoint and checkpoint.model_checkpoint_path:
-            saver.restore(sess, checkpoint.model_checkpoint_path)
-            print ("Successfully loaded:", checkpoint.model_checkpoint_path)
-        else:
-            print ("Could not find old network weights")
+#         checkpoint = tf.train.get_checkpoint_state("./models")
+#         if checkpoint and checkpoint.model_checkpoint_path:
+#             saver.restore(sess, checkpoint.model_checkpoint_path)
+#             print ("Successfully loaded:", checkpoint.model_checkpoint_path)
+#         else:
+#             print ("Could not find old network weights")
         dqn.train(saver=saver,
                   num_steps=2000000, # Make sure an exception arrives before we stop.
                   player=player,
