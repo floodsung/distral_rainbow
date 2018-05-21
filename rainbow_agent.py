@@ -14,6 +14,7 @@ from anyrl.models import rainbow_models
 from anyrl.rollouts import BatchedPlayer, PrioritizedReplayBuffer, NStepPlayer
 from anyrl.spaces import gym_space_vectorizer
 import gym_remote.exceptions as gre
+from tensorflow.python import debug as tf_debug
 
 from sonic_util import AllowBacktracking, make_env
 
@@ -24,6 +25,9 @@ def main():
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True # pylint: disable=E1101
     with tf.Session(config=config) as sess:
+#         sess = tf_debug.LocalCLIDebugWrapperSession(sess)
+#         sess.add_tensor_filter(
+#                 "has_inf_or_nan", tf_debug.has_inf_or_nan)
         dqn = DQN(*rainbow_models(sess,
                                   env.action_space.n,
                                   gym_space_vectorizer(env.observation_space),

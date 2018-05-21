@@ -6,6 +6,7 @@ import time
 
 import tensorflow as tf
 import os
+import numpy as np
 
 # pylint: disable=R0902,R0903
 
@@ -153,7 +154,10 @@ class DQN:
                     batch = replay_buffer.sample(batch_size)
                     _, losses,target_preds = sess.run((optimize_op, self.losses,self.target_preds),
                                          feed_dict=self.feed_dict(batch))
-                    #print(target_preds)
+                    for loss in losses:
+                        if np.isnan(loss):
+                            print("losses:",losses)
+                            print("entropy:",target_preds)
                     replay_buffer.update_weights(batch, losses)
                     #train_end = time.time()
                     #print("train_time:",train_end - train_start)

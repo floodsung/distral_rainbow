@@ -42,7 +42,7 @@ def rainbow_models(session,
     """
     maker = lambda name: NatureDistQNetwork(session, num_actions, obs_vectorizer, name,
                                             num_atoms, min_val, max_val,tao=tao,dueling=True,
-                                            dense=partial(noisy_net_dense, sigma0=sigma0))
+                                            dense=tf.layers.dense)
     return maker('online'), maker('target')
 
 class DistQNetwork(TFQNetwork):
@@ -110,13 +110,14 @@ class DistQNetwork(TFQNetwork):
         with tf.variable_scope(self.name, reuse=True):
             values = self.dist.mean(self.value_func(self.base(new_obses)))
         policies = self.policy_func(values)
-        entropy = self.entropy_func(values)
 
         with tf.variable_scope(target_net.name, reuse=True):
             target_preds = target_net.value_func(target_net.base(new_obses))
             target_preds = tf.where(terminals,
                                     tf.zeros_like(target_preds) - log(self.dist.num_atoms),
                                     target_preds)
+            target_values = self.dist.mean(target_preds)
+        entropy = self.entropy_func(target_values)
         discounts = tf.where(terminals, tf.zeros_like(discounts), discounts)
 
         tile_policies = tf.reshape(tf.tile(policies,multiples=(1,self.dist.num_atoms)),(tf.shape(policies)[0], self.num_actions, self.dist.num_atoms))
@@ -125,7 +126,7 @@ class DistQNetwork(TFQNetwork):
         with tf.variable_scope(self.name, reuse=True):
             online_preds = self.value_func(self.base(obses))
             onlines = take_vector_elems(online_preds, actions)
-            return _kl_divergence(tf.stop_gradient(target_dists), onlines),policies
+            return _kl_divergence(tf.stop_gradient(target_dists), onlines),entropy
 
     @property
     def input_dtype(self):
@@ -288,14 +289,14 @@ class ActionDist:
         atom_rews = tf.tile(tf.constant([self.atom_values()], dtype=probs.dtype),
                             tf.stack([tf.shape(rewards)[0], 1]))
         fuzzy_idxs = tf.expand_dims(rewards + tao * discounts * entropy, axis=1) + tf.expand_dims(discounts, axis=1) * atom_rews
-        fuzzy_idxs = tf.clip_by_value(fuzzy_idxs,self.min_val,self.max_val)
-        fuzzy_idxs = (fuzzy_idxs - self.min_val) / self._delta
+        #fuzzy_idxs = tf.clip_by_value(fuzzy_idxs,self.min_val,self.max_val)
+        fuzzy_idxs = (fuzzy_idxs - self.min_val) / self._delta #b
 
         # If the position were exactly 0, rounding up
         # and subtracting 1 would cause problems.
-        fuzzy_idxs = tf.clip_by_value(fuzzy_idxs, 1e-18, float(self.num_atoms - 1))
+        fuzzy_idxs = tf.clip_by_value(fuzzy_idxs, 1e-18, float(self.num_atoms - 1)) #b
 
-        indices_1 = tf.cast(tf.ceil(fuzzy_idxs) - 1, tf.int32)
+        indices_1 = tf.cast(tf.ceil(fuzzy_idxs) - 1, tf.int32) 
         fracs_1 = tf.abs(tf.ceil(fuzzy_idxs) - fuzzy_idxs)
         indices_2 = indices_1 + 1
         fracs_2 = 1 - fracs_1
