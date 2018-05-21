@@ -36,7 +36,7 @@ class DQN:
         self.discounts_ph = tf.placeholder(tf.float32, shape=(None,))
         self.weights_ph = tf.placeholder(tf.float32, shape=(None,))
 
-        losses,self.target_preds = online_net.transition_loss(target_net, self.obses_ph, self.actions_ph,
+        losses,self.entropy,self.target_sum,self.target_sum_2 = online_net.transition_loss(target_net, self.obses_ph, self.actions_ph,
                                             self.rews_ph, self.new_obses_ph, self.terminals_ph,
                                             self.discounts_ph)
         self.losses = self.weights_ph * losses
@@ -152,12 +152,20 @@ class DQN:
                     #train_start = time.time()
                     next_train_step = steps_taken + train_interval
                     batch = replay_buffer.sample(batch_size)
-                    _, losses,target_preds = sess.run((optimize_op, self.losses,self.target_preds),
+                    _, losses,entropy,target_sum,target_sum_2 = sess.run((optimize_op, self.losses,self.entropy,self.target_sum,self.target_sum_2),
                                          feed_dict=self.feed_dict(batch))
-                    for loss in losses:
-                        if np.isnan(loss):
-                            print("losses:",losses)
-                            print("entropy:",target_preds)
+#                     print("entropy:",entropy)
+#                     print("target_sum:",target_sum)
+#                     print("target_sum2:",target_sum_2)
+#                     for value in target_sum[0]:
+#                         if value < 0:
+#                             print("has value less than 0")
+#                     for value in target_sum_2[0]:
+#                         if value < 0:
+#                             print("has value less than 0")
+#                     for value in entropy:
+#                         if value < 0:
+#                             print("has value less than 0")
                     replay_buffer.update_weights(batch, losses)
                     #train_end = time.time()
                     #print("train_time:",train_end - train_start)

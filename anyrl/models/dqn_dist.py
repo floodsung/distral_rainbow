@@ -42,7 +42,7 @@ def rainbow_models(session,
     """
     maker = lambda name: NatureDistQNetwork(session, num_actions, obs_vectorizer, name,
                                             num_atoms, min_val, max_val,tao=tao,dueling=True,
-                                            dense=tf.layers.dense)
+                                            dense=partial(noisy_net_dense, sigma0=sigma0))
     return maker('online'), maker('target')
 
 class DistQNetwork(TFQNetwork):
@@ -113,20 +113,26 @@ class DistQNetwork(TFQNetwork):
 
         with tf.variable_scope(target_net.name, reuse=True):
             target_preds = target_net.value_func(target_net.base(new_obses))
+            
             target_preds = tf.where(terminals,
                                     tf.zeros_like(target_preds) - log(self.dist.num_atoms),
                                     target_preds)
+            target_sum_2 = tf.reduce_sum(tf.exp(target_preds),axis=2)
             target_values = self.dist.mean(target_preds)
         entropy = self.entropy_func(target_values)
         discounts = tf.where(terminals, tf.zeros_like(discounts), discounts)
 
-        tile_policies = tf.reshape(tf.tile(policies,multiples=(1,self.dist.num_atoms)),(tf.shape(policies)[0], self.num_actions, self.dist.num_atoms))
+        tile_policies = tf.transpose(tf.reshape(tf.tile(policies,multiples=(1,self.dist.num_atoms)),(tf.shape(policies)[0],self.dist.num_atoms, self.num_actions)),perm=[0,2,1])
         target_preds = tf.reduce_sum(tf.exp(target_preds)*tile_policies,axis=1)
+        #print("target_preds shape:",target_preds.get_shape())
         target_dists = self.dist.add_rewards(target_preds,rews, discounts,entropy,self.tao)
+        target_sum = tf.reduce_sum(target_preds,axis=1)
+        
+       
         with tf.variable_scope(self.name, reuse=True):
             online_preds = self.value_func(self.base(obses))
             onlines = take_vector_elems(online_preds, actions)
-            return _kl_divergence(tf.stop_gradient(target_dists), onlines),entropy
+            return _kl_divergence(tf.stop_gradient(target_dists), onlines),entropy,target_sum,target_sum_2
 
     @property
     def input_dtype(self):
@@ -289,7 +295,7 @@ class ActionDist:
         atom_rews = tf.tile(tf.constant([self.atom_values()], dtype=probs.dtype),
                             tf.stack([tf.shape(rewards)[0], 1]))
         fuzzy_idxs = tf.expand_dims(rewards + tao * discounts * entropy, axis=1) + tf.expand_dims(discounts, axis=1) * atom_rews
-        #fuzzy_idxs = tf.clip_by_value(fuzzy_idxs,self.min_val,self.max_val)
+        fuzzy_idxs = tf.clip_by_value(fuzzy_idxs,self.min_val,self.max_val)
         fuzzy_idxs = (fuzzy_idxs - self.min_val) / self._delta #b
 
         # If the position were exactly 0, rounding up
