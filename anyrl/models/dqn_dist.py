@@ -196,7 +196,7 @@ class DistQNetwork(TFQNetwork):
         with tf.variable_scope(self.name, reuse=True):
             values = self.dist.mean(self.value_func(self.base(obses)))
 
-        return tf.nn.log_softmax(1/self.tau * values_batch,axis=1)
+        return tf.nn.log_softmax(1/self.tau * values,axis=1)
 
     def entropy_func(self,values_batch):
         policies = tf.nn.softmax(1/self.tau * values_batch,axis=1)
