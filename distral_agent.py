@@ -99,7 +99,7 @@ def main():
 
     ray.init()
 
-    remote_agent = ray.remote(JointAgent)
+    remote_agent = ray.remote(DistralAgent)
     agents = [remote_agent.remote(i) for i in range(THREAD_NUM)]
 
     #joint agent
