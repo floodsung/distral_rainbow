@@ -69,7 +69,7 @@ class DistralAgent():
 
     def train(self,distilled_policy_weights):
 
-        self.dqn.variables.set_distilled_policy_weights(distilled_policy_weights)
+        self.dqn.distilled_variables.set_distilled_policy_weights(distilled_policy_weights)
 
         transitions = self.player.play()
         actual_grads = 0
