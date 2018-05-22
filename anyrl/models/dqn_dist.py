@@ -22,7 +22,8 @@ def rainbow_models(session,
                    min_val=-10,
                    max_val=10,
                    sigma0=0.5,
-                   tao = 0.1):
+                   tau = 0.1,
+                   beta=0.1):
     """
     Create the models used for Rainbow
     (https://arxiv.org/abs/1710.02298).
@@ -41,9 +42,12 @@ def rainbow_models(session,
       A tuple (online, target).
     """
     maker = lambda name: NatureDistQNetwork(session, num_actions, obs_vectorizer, name,
-                                            num_atoms, min_val, max_val,tao=tao,dueling=True,
+                                            num_atoms, min_val, max_val,tau=tau,beta=beta,dueling=True,
                                             dense=partial(noisy_net_dense, sigma0=sigma0))
-    return maker('online'), maker('target')
+    distilled_maker = lambda name: NatureDistQNetwork(session, num_actions, obs_vectorizer, name,
+                                            num_atoms, min_val, max_val,tau=tau,beta=beta,dueling=True,
+                                            dense=tf.layers.dense)
+    return maker('online'), maker('target'),distilled_maker('distilled')
 
 class DistQNetwork(TFQNetwork):
     """
@@ -53,7 +57,7 @@ class DistQNetwork(TFQNetwork):
     Subclasses should override the base() and value_func()
     methods with specific neural network architectures.
     """
-    def __init__(self, session, num_actions, obs_vectorizer, name, num_atoms, min_val, max_val,tao,
+    def __init__(self, session, num_actions, obs_vectorizer, name, num_atoms, min_val, max_val,tau,beta,
                  dueling=False, dense=tf.layers.dense,):
         """
         Create a distributional network.
@@ -75,7 +79,8 @@ class DistQNetwork(TFQNetwork):
         self.dueling = dueling
         self.dense = dense
         self.dist = ActionDist(num_atoms, min_val, max_val)
-        self.tao = tao # temperature
+        self.tau = tau # temperature
+        self.beta = beta
         old_vars = tf.trainable_variables()
         with tf.variable_scope(name):
             self.step_obs_ph = tf.placeholder(self.input_dtype,
@@ -106,14 +111,16 @@ class DistQNetwork(TFQNetwork):
             'action_dists': dists
         }
 
-    def transition_loss(self, target_net, obses, actions, rews, new_obses, terminals, discounts):
+    def transition_loss(self, target_net, log_distilled_policy, obses, actions, rews, new_obses, terminals, discounts):
         with tf.variable_scope(self.name, reuse=True):
             values = self.dist.mean(self.value_func(self.base(new_obses)))
         policies = self.policy_func(values)
 
+        distilled_kl = _kl_divergence(policies,log_distilled_policy)
+
         with tf.variable_scope(target_net.name, reuse=True):
             target_preds = target_net.value_func(target_net.base(new_obses))
-            
+
             target_preds = tf.where(terminals,
                                     tf.zeros_like(target_preds) - log(self.dist.num_atoms),
                                     target_preds)
@@ -125,10 +132,10 @@ class DistQNetwork(TFQNetwork):
         tile_policies = tf.transpose(tf.reshape(tf.tile(policies,multiples=(1,self.dist.num_atoms)),(tf.shape(policies)[0],self.dist.num_atoms, self.num_actions)),perm=[0,2,1])
         target_preds = tf.reduce_sum(tf.exp(target_preds)*tile_policies,axis=1)
         #print("target_preds shape:",target_preds.get_shape())
-        target_dists = self.dist.add_rewards(target_preds,rews, discounts,entropy,self.tao)
+        target_dists = self.dist.add_rewards(target_preds,rews, discounts,entropy,self.tau,distilled_kl,self.beta)
         target_sum = tf.reduce_sum(target_preds,axis=1)
-        
-       
+
+
         with tf.variable_scope(self.name, reuse=True):
             online_preds = self.value_func(self.base(obses))
             onlines = take_vector_elems(online_preds, actions)
@@ -182,13 +189,19 @@ class DistQNetwork(TFQNetwork):
           A Tensor of shape [batch x actions].
 
         """
-        policies = tf.nn.softmax(1/self.tao * values_batch,axis=1)
+        policies = tf.nn.softmax(1/self.tau * values_batch,axis=1)
         return policies
-    
+
+    def log_policy(self,obses):
+        with tf.variable_scope(self.name, reuse=True):
+            values = self.dist.mean(self.value_func(self.base(obses)))
+
+        return tf.nn.log_softmax(1/self.tau * values_batch,axis=1)
+
     def entropy_func(self,values_batch):
-        policies = tf.nn.softmax(1/self.tao * values_batch,axis=1)
-        log_policies = tf.nn.log_softmax(1/self.tao * values_batch,axis=1)
-        
+        policies = tf.nn.softmax(1/self.tau * values_batch,axis=1)
+        log_policies = tf.nn.log_softmax(1/self.tau * values_batch,axis=1)
+
         return - tf.reduce_sum(policies * log_policies,axis=1)
 
     # pylint: disable=W0613
@@ -238,7 +251,8 @@ class NatureDistQNetwork(DistQNetwork):
                  num_atoms,
                  min_val,
                  max_val,
-                 tao,
+                 tau,
+                 beta,
                  dueling=False,
                  dense=tf.layers.dense,
                  input_dtype=tf.uint8,
@@ -246,7 +260,7 @@ class NatureDistQNetwork(DistQNetwork):
         self._input_dtype = input_dtype
         self.input_scale = input_scale
         super(NatureDistQNetwork, self).__init__(session, num_actions, obs_vectorizer, name,
-                                                 num_atoms, min_val, max_val,tao=tao,
+                                                 num_atoms, min_val, max_val,tau=tau,beta=beta,
                                                  dueling=dueling, dense=dense)
 
     @property
@@ -278,7 +292,7 @@ class ActionDist:
         probs = tf.exp(log_probs)
         return tf.reduce_sum(probs * tf.constant(self.atom_values(), dtype=probs.dtype), axis=-1)
 
-    def add_rewards(self, probs, rewards, discounts,entropy,tao):
+    def add_rewards(self, probs, rewards, discounts,entropy, tau, distilled_kl,beta):
         """
         Compute new distributions after adding rewards to
         old distributions.
@@ -294,7 +308,7 @@ class ActionDist:
         """
         atom_rews = tf.tile(tf.constant([self.atom_values()], dtype=probs.dtype),
                             tf.stack([tf.shape(rewards)[0], 1]))
-        fuzzy_idxs = tf.expand_dims(rewards + tao * discounts * entropy, axis=1) + tf.expand_dims(discounts, axis=1) * atom_rews
+        fuzzy_idxs = tf.expand_dims(rewards + tau * discounts * entropy + beta*discounts*distilled_kl, axis=1) + tf.expand_dims(discounts, axis=1) * atom_rews
         fuzzy_idxs = tf.clip_by_value(fuzzy_idxs,self.min_val,self.max_val)
         fuzzy_idxs = (fuzzy_idxs - self.min_val) / self._delta #b
 
@@ -302,7 +316,7 @@ class ActionDist:
         # and subtracting 1 would cause problems.
         fuzzy_idxs = tf.clip_by_value(fuzzy_idxs, 1e-18, float(self.num_atoms - 1)) #b
 
-        indices_1 = tf.cast(tf.ceil(fuzzy_idxs) - 1, tf.int32) 
+        indices_1 = tf.cast(tf.ceil(fuzzy_idxs) - 1, tf.int32)
         fracs_1 = tf.abs(tf.ceil(fuzzy_idxs) - fuzzy_idxs)
         indices_2 = indices_1 + 1
         fracs_2 = 1 - fracs_1

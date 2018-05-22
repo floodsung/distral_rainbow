@@ -14,7 +14,7 @@ class DQN:
     """
     Train TFQNetwork models using Q-learning.
     """
-    def __init__(self, online_net, target_net, discount=0.99):
+    def __init__(self, online_net, target_net, distilled_net, discount=0.99):
         """
         Create a Q-learning session.
 
@@ -25,6 +25,7 @@ class DQN:
         """
         self.online_net = online_net
         self.target_net = target_net
+        self.distilled_net = distilled_net
         self.discount = discount
 
         obs_shape = (None,) + online_net.obs_vectorizer.out_shape
@@ -36,16 +37,21 @@ class DQN:
         self.discounts_ph = tf.placeholder(tf.float32, shape=(None,))
         self.weights_ph = tf.placeholder(tf.float32, shape=(None,))
 
-        losses,self.entropy,self.target_sum,self.target_sum_2 = online_net.transition_loss(target_net, self.obses_ph, self.actions_ph,
+        self.log_distilled_policy = self.distilled_policy.log_policy(self.new_obses_ph)
+        losses,self.entropy,self.target_sum,self.target_sum_2 = online_net.transition_loss(target_net,self.log_distilled_policy, self.obses_ph, self.actions_ph,
                                             self.rews_ph, self.new_obses_ph, self.terminals_ph,
                                             self.discounts_ph)
         self.losses = self.weights_ph * losses
         self.loss = tf.reduce_mean(self.losses)
 
+        self.distilled_variables = ray.experimental.TensorFlowVariables(self.log_distilled_policy, self.online_net.session)
+
         assigns = []
         for dst, src in zip(target_net.variables, online_net.variables):
             assigns.append(tf.assign(dst, src))
         self.update_target = tf.group(*assigns)
+
+        self.optim = tf.train.AdamOptimizer(learning_rate=1e-4, epsilon=1.5e-4).minimize(self.loss)
 
     def feed_dict(self, transitions):
         """
@@ -77,107 +83,11 @@ class DQN:
         res[self.new_obses_ph] = obs_vect.to_vecs(new_obses)
         return res
 
-    def optimize(self, learning_rate=6.25e-5, epsilon=1.5e-4, **adam_kwargs):
-        """
-        Create a TF Op that optimizes the objective.
+    def get_distilled_policy_weights(self):
+        return self.distilled_variables.get_weights()
 
-        Args:
-          learning_rate: the Adam learning rate.
-          epsilon: the Adam epsilon.
-        """
-        optim = tf.train.AdamOptimizer(learning_rate=learning_rate, epsilon=epsilon, **adam_kwargs)
-        return optim.minimize(self.loss)
-
-    # pylint: disable=R0913,R0914
-    def train(self,
-              saver,
-              num_steps,
-              player,
-              replay_buffer,
-              optimize_op,
-              train_interval=1,
-              target_interval=8192,
-              batch_size=32,
-              min_buffer_size=20000,
-              tf_schedules=(),
-              handle_ep=lambda steps, rew: None,
-              timeout=None):
-        """
-        Run an automated training loop.
-
-        This is meant to provide a convenient way to run a
-        standard training loop without any modifications.
-        You may get more flexibility by writing your own
-        training loop.
-
-        Args:
-          num_steps: the number of timesteps to run.
-          player: the Player for gathering experience.
-          replay_buffer: the ReplayBuffer for experience.
-          optimize_op: a TF Op to optimize the model.
-          train_interval: timesteps per training step.
-          target_interval: number of timesteps between
-            target network updates.
-          batch_size: the size of experience mini-batches.
-          min_buffer_size: minimum replay buffer size
-            before training is performed.
-          tf_schedules: a sequence of TFSchedules that are
-            updated with the number of steps taken.
-          handle_ep: called with information about every
-            completed episode.
-          timeout: if set, this is a number of seconds
-            after which the training loop should exit.
-        """
-        sess = self.online_net.session
-        sess.run(self.update_target)
-        steps_taken = 0
-        next_target_update = target_interval
-        next_train_step = train_interval
-        start_time = time.time()
-        while steps_taken < num_steps:
-            if timeout is not None and time.time() - start_time > timeout:
-                return
-            #play_start = time.time()
-            transitions = player.play()
-            #play_end = time.time()
-            #print("play_time:",play_end - play_start)
-            for trans in transitions:
-                if trans['is_last']:
-                    handle_ep(trans['episode_step'] + 1, trans['total_reward'])
-                replay_buffer.add_sample(trans)
-                steps_taken += 1
-                for sched in tf_schedules:
-                    sched.add_time(sess, 1)
-                if replay_buffer.size >= min_buffer_size and steps_taken >= next_train_step:
-                    #train_start = time.time()
-                    next_train_step = steps_taken + train_interval
-                    batch = replay_buffer.sample(batch_size)
-                    _, losses,entropy,target_sum,target_sum_2 = sess.run((optimize_op, self.losses,self.entropy,self.target_sum,self.target_sum_2),
-                                         feed_dict=self.feed_dict(batch))
-#                     print("entropy:",entropy)
-#                     print("target_sum:",target_sum)
-#                     print("target_sum2:",target_sum_2)
-#                     for value in target_sum[0]:
-#                         if value < 0:
-#                             print("has value less than 0")
-#                     for value in target_sum_2[0]:
-#                         if value < 0:
-#                             print("has value less than 0")
-#                     for value in entropy:
-#                         if value < 0:
-#                             print("has value less than 0")
-                    replay_buffer.update_weights(batch, losses)
-                    #train_end = time.time()
-                    #print("train_time:",train_end - train_start)
-                if steps_taken >= next_target_update:
-                    next_target_update = steps_taken + target_interval
-                    sess.run(self.update_target)
-
-                if (steps_taken+1)% 20000 == 0:
-                    print("steps:",steps_taken+1)
-                    if not os.path.exists("./models"):
-                        os.makedirs("./models") 
-                    saver.save(sess, './models/' + 'network', global_step = 10000)
+    def set_distilled_policy_weights(self,weights):
+        self.distilled_variables.set_weights(weights)
 
     def _discounted_rewards(self, rews):
         res = 0
