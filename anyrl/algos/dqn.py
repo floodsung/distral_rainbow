@@ -37,7 +37,7 @@ class DQN:
         self.discounts_ph = tf.placeholder(tf.float32, shape=(None,))
         self.weights_ph = tf.placeholder(tf.float32, shape=(None,))
 
-        self.log_distilled_policy = self.distilled_policy.log_policy(self.new_obses_ph)
+        self.log_distilled_policy = self.distilled_net.log_policy(self.new_obses_ph)
         losses,self.entropy,self.target_sum,self.target_sum_2 = online_net.transition_loss(target_net,self.log_distilled_policy, self.obses_ph, self.actions_ph,
                                             self.rews_ph, self.new_obses_ph, self.terminals_ph,
                                             self.discounts_ph)
