@@ -7,6 +7,7 @@ import time
 import tensorflow as tf
 import os
 import numpy as np
+import ray
 
 # pylint: disable=R0902,R0903
 
