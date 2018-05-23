@@ -44,10 +44,10 @@ def rainbow_models(session,
     maker = lambda name: NatureDistQNetwork(session, num_actions, obs_vectorizer, name,
                                             num_atoms, min_val, max_val,tau=tau,alpha=alpha,dueling=True,
                                             dense=partial(noisy_net_dense, sigma0=sigma0))
-    distilled_maker = lambda name: NatureDistQNetwork(session, num_actions, obs_vectorizer, name,
-                                            num_atoms, min_val, max_val,tau=tau,alpha=alpha,dueling=True,
-                                            dense=tf.layers.dense)
-    return maker('online'), maker('target'),distilled_maker('distilled')
+    # distilled_maker = lambda name: NatureDistQNetwork(session, num_actions, obs_vectorizer, name,
+    #                                         num_atoms, min_val, max_val,tau=tau,alpha=alpha,dueling=True,
+    #                                         dense=tf.layers.dense)
+    return maker('online'), maker('target'),maker('distilled')
 
 class DistQNetwork(TFQNetwork):
     """
