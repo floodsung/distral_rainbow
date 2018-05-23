@@ -8,10 +8,11 @@ from anyrl.rollouts import BatchedPlayer, PrioritizedReplayBuffer, NStepPlayer
 from anyrl.spaces import gym_space_vectorizer
 
 from sonic_util import AllowBacktracking, make_env
+import numpy as np
 import csv
 import ray
 
-THREAD_NUM = 25
+THREAD_NUM = 32
 NUM_ITER  = 5000000
 
 class DistralAgent():
@@ -133,13 +134,22 @@ def main():
     for iteration in range(NUM_ITER):
         if iteration % 1000 == 0:
             print("iter:",iteration)
-        done_ids,batch_list = ray.wait(batch_list,num_returns=5)
-        batchs,infos = ray.get(done_ids)
+        done_ids,batch_list = ray.wait(batch_list,num_returns=10)
+        datas = ray.get(done_ids)
+        batchs = []
+        infos = []
+        for data in datas:
+            batch,info = data
+            batchs.append(batch)
+            infos.append(info)
 
         if not 0 in batchs:
-            batchs = np.stack(batchs)
+            batchs = np.array(batchs).reshape(10*32)
             _,loss = sess.run((joint_dqn.policy_optim,joint_dqn.distilled_policy_loss),
-                            feed_dict=self.dqn.feed_dict(batchs))
+                            feed_dict=joint_dqn.feed_dict(batchs))
+
+            if iteration%1000 ==0:
+                print("iter:",iteration,"policy loss:",loss)
 
         parameters = joint_dqn.get_distilled_policy_weights()
         for info in infos:

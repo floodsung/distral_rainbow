@@ -146,7 +146,8 @@ class DistQNetwork(TFQNetwork):
 
         action_log_probs = take_vector_elems(log_probs,actions)
 
-        loss = - self.tau*self.beta*tf.reduce_sum(discounts * action_log_probs)
+        loss = - self.tau*self.alpha*tf.reduce_sum(discounts * action_log_probs)
+        return loss
 
     @property
     def input_dtype(self):
