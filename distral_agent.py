@@ -12,7 +12,7 @@ import csv
 import ray
 
 THREAD_NUM = 25
-NUM_ITER  = 2000000
+NUM_ITER  = 5000000
 
 class DistralAgent():
 
@@ -73,6 +73,7 @@ class DistralAgent():
 
         transitions = self.player.play()
         actual_grads = 0
+        batch = 0
         for trans in transitions:
                 if trans['is_last']:
                     self.handle_ep(trans['episode_step'] + 1, trans['total_reward'])
@@ -92,7 +93,7 @@ class DistralAgent():
 
         info = {"id": self.env_index}
 
-        return self.dqn.get_distilled_policy_weights(),info
+        return batch,info
 
 
 def main():
@@ -114,20 +115,40 @@ def main():
                                   min_val=-200,
                                   max_val=200))
     sess.run(tf.global_variables_initializer())
+
+    distilled_network_variables = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="distilled")
+    saver = tf.train.Saver(distilled_network_variables)
+    checkpoint = tf.train.get_checkpoint_state("./models")
+    if checkpoint and checkpoint.model_checkpoint_path:
+        saver.restore(sess, checkpoint.model_checkpoint_path)
+        print ("Successfully loaded:", checkpoint.model_checkpoint_path)
+    else:
+        print ("Could not find old network weights")
+
+
     parameters = joint_dqn.get_distilled_policy_weights()
 
-    weights_list = [agent.train.remote(parameters) for agent in agents]
+    batch_list = [agent.train.remote(parameters) for agent in agents]
 
     for iteration in range(NUM_ITER):
         if iteration % 1000 == 0:
             print("iter:",iteration)
-        done_id,weights_list = ray.wait(weights_list)
-        weights,info = ray.get(done_id)[0]
+        done_ids,batch_list = ray.wait(batch_list,num_returns=5)
+        batchs,infos = ray.get(done_ids)
 
-        if weights != 0:
-            joint_dqn.set_distilled_policy_weights(weights)
+        if not 0 in batchs:
+            batchs = np.stack(batchs)
+            _,loss = sess.run((joint_dqn.policy_optim,joint_dqn.distilled_policy_loss),
+                            feed_dict=self.dqn.feed_dict(batchs))
+
         parameters = joint_dqn.get_distilled_policy_weights()
-        weights_list.extend([agents[info["id"]].train.remote(parameters)])
+        for info in infos:
+            batch_list.extend([agents[info["id"]].train.remote(parameters)])
+
+        if (iteration+1)% 20000 == 0:
+            if not os.path.exists("./models"):
+                os.makedirs("./models")
+            saver.save(sess, './models/' + 'network', global_step = 10000)
 
 
 

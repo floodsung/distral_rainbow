@@ -45,6 +45,8 @@ class DQN:
         self.losses = self.weights_ph * losses
         self.loss = tf.reduce_mean(self.losses)
 
+        self.distilled_policy_loss = self.distilled_net.policy_loss(self.obses_ph, self.actions_ph,self.discounts_ph)
+
         self.distilled_variables = ray.experimental.TensorFlowVariables(self.log_distilled_policy, self.online_net.session)
 
         assigns = []
@@ -53,7 +55,7 @@ class DQN:
         self.update_target = tf.group(*assigns)
 
         self.optim = tf.train.AdamOptimizer(learning_rate=1e-4, epsilon=1.5e-4).minimize(self.loss)
-
+        self.policy_optim = tf.train.AdamOptimizer(learning_rate=1e-4, epsilon=1.5e-4).minimize(self.distilled_policy_loss)
     def feed_dict(self, transitions):
         """
         Generate a feed_dict that feeds the batch of

@@ -22,8 +22,8 @@ def rainbow_models(session,
                    min_val=-10,
                    max_val=10,
                    sigma0=0.5,
-                   tau = 0.1,
-                   beta=0.1):
+                   tau = 0.2,
+                   alpha=0.9):
     """
     Create the models used for Rainbow
     (https://arxiv.org/abs/1710.02298).
@@ -42,10 +42,10 @@ def rainbow_models(session,
       A tuple (online, target).
     """
     maker = lambda name: NatureDistQNetwork(session, num_actions, obs_vectorizer, name,
-                                            num_atoms, min_val, max_val,tau=tau,beta=beta,dueling=True,
+                                            num_atoms, min_val, max_val,tau=tau,alpha=alpha,dueling=True,
                                             dense=partial(noisy_net_dense, sigma0=sigma0))
     distilled_maker = lambda name: NatureDistQNetwork(session, num_actions, obs_vectorizer, name,
-                                            num_atoms, min_val, max_val,tau=tau,beta=beta,dueling=True,
+                                            num_atoms, min_val, max_val,tau=tau,alpha=alpha,dueling=True,
                                             dense=tf.layers.dense)
     return maker('online'), maker('target'),distilled_maker('distilled')
 
@@ -57,7 +57,7 @@ class DistQNetwork(TFQNetwork):
     Subclasses should override the base() and value_func()
     methods with specific neural network architectures.
     """
-    def __init__(self, session, num_actions, obs_vectorizer, name, num_atoms, min_val, max_val,tau,beta,
+    def __init__(self, session, num_actions, obs_vectorizer, name, num_atoms, min_val, max_val,tau,alpha,
                  dueling=False, dense=tf.layers.dense,):
         """
         Create a distributional network.
@@ -80,7 +80,7 @@ class DistQNetwork(TFQNetwork):
         self.dense = dense
         self.dist = ActionDist(num_atoms, min_val, max_val)
         self.tau = tau # temperature
-        self.beta = beta
+        self.alpha = alpha #[0,1]
         old_vars = tf.trainable_variables()
         with tf.variable_scope(name):
             self.step_obs_ph = tf.placeholder(self.input_dtype,
@@ -116,7 +116,7 @@ class DistQNetwork(TFQNetwork):
             values = self.dist.mean(self.value_func(self.base(new_obses)))
         policies = self.policy_func(values)
 
-        distilled_kl = _kl_divergence(policies,log_distilled_policy)
+        distilled_kl = self.kl_func(policies,tf.stop_gradient(log_distilled_policy))
 
         with tf.variable_scope(target_net.name, reuse=True):
             target_preds = target_net.value_func(target_net.base(new_obses))
@@ -132,7 +132,7 @@ class DistQNetwork(TFQNetwork):
         tile_policies = tf.transpose(tf.reshape(tf.tile(policies,multiples=(1,self.dist.num_atoms)),(tf.shape(policies)[0],self.dist.num_atoms, self.num_actions)),perm=[0,2,1])
         target_preds = tf.reduce_sum(tf.exp(target_preds)*tile_policies,axis=1)
         #print("target_preds shape:",target_preds.get_shape())
-        target_dists = self.dist.add_rewards(target_preds,rews, discounts,entropy,self.tau,distilled_kl,self.beta)
+        target_dists = self.dist.add_rewards(target_preds,rews, discounts,entropy,self.tau,distilled_kl,self.alpha)
         target_sum = tf.reduce_sum(target_preds,axis=1)
 
 
@@ -140,6 +140,13 @@ class DistQNetwork(TFQNetwork):
             online_preds = self.value_func(self.base(obses))
             onlines = take_vector_elems(online_preds, actions)
             return _kl_divergence(tf.stop_gradient(target_dists), onlines),entropy,target_sum,target_sum_2
+
+    def policy_loss(self,obses, actions,discounts):
+        log_probs = self.log_policy(obses)
+
+        action_log_probs = take_vector_elems(log_probs,actions)
+
+        loss = - self.tau*self.beta*tf.reduce_sum(discounts * action_log_probs)
 
     @property
     def input_dtype(self):
@@ -204,6 +211,9 @@ class DistQNetwork(TFQNetwork):
 
         return - tf.reduce_sum(policies * log_policies,axis=1)
 
+    def kl_func(self,policies,log_policies):
+        return tf.reduce_sum(policies*log_policies,axis=1)
+
     # pylint: disable=W0613
     def step_feed_dict(self, observations, states):
         """Produce a feed_dict for taking a step."""
@@ -252,7 +262,7 @@ class NatureDistQNetwork(DistQNetwork):
                  min_val,
                  max_val,
                  tau,
-                 beta,
+                 alpha,
                  dueling=False,
                  dense=tf.layers.dense,
                  input_dtype=tf.uint8,
@@ -260,7 +270,7 @@ class NatureDistQNetwork(DistQNetwork):
         self._input_dtype = input_dtype
         self.input_scale = input_scale
         super(NatureDistQNetwork, self).__init__(session, num_actions, obs_vectorizer, name,
-                                                 num_atoms, min_val, max_val,tau=tau,beta=beta,
+                                                 num_atoms, min_val, max_val,tau=tau,alpha=alpha,
                                                  dueling=dueling, dense=dense)
 
     @property
@@ -292,7 +302,7 @@ class ActionDist:
         probs = tf.exp(log_probs)
         return tf.reduce_sum(probs * tf.constant(self.atom_values(), dtype=probs.dtype), axis=-1)
 
-    def add_rewards(self, probs, rewards, discounts,entropy, tau, distilled_kl,beta):
+    def add_rewards(self, probs, rewards, discounts,entropy, tau, distilled_kl,alpha):
         """
         Compute new distributions after adding rewards to
         old distributions.
@@ -308,7 +318,7 @@ class ActionDist:
         """
         atom_rews = tf.tile(tf.constant([self.atom_values()], dtype=probs.dtype),
                             tf.stack([tf.shape(rewards)[0], 1]))
-        fuzzy_idxs = tf.expand_dims(rewards + tau * discounts * entropy + beta*discounts*distilled_kl, axis=1) + tf.expand_dims(discounts, axis=1) * atom_rews
+        fuzzy_idxs = tf.expand_dims(rewards + tau * discounts * entropy + tau*alpha*discounts*distilled_kl, axis=1) + tf.expand_dims(discounts, axis=1) * atom_rews
         fuzzy_idxs = tf.clip_by_value(fuzzy_idxs,self.min_val,self.max_val)
         fuzzy_idxs = (fuzzy_idxs - self.min_val) / self._delta #b
 
@@ -333,3 +343,6 @@ class ActionDist:
 def _kl_divergence(probs, log_probs):
     masked_diff = tf.where(tf.equal(probs, 0), tf.zeros_like(probs), tf.log(probs) - log_probs)
     return tf.reduce_sum(probs * masked_diff, axis=-1)
+
+
+
