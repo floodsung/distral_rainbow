@@ -15,7 +15,7 @@ class DQN:
     """
     Train TFQNetwork models using Q-learning.
     """
-    def __init__(self, online_net, target_net, distilled_net, discount=0.99):
+    def __init__(self, online_net, target_net, distill_net, discount=0.99):
         """
         Create a Q-learning session.
 
@@ -26,7 +26,7 @@ class DQN:
         """
         self.online_net = online_net
         self.target_net = target_net
-        self.distilled_net = distilled_net
+        self.distill_net = distill_net
         self.discount = discount
 
         obs_shape = (None,) + online_net.obs_vectorizer.out_shape
@@ -38,16 +38,14 @@ class DQN:
         self.discounts_ph = tf.placeholder(tf.float32, shape=(None,))
         self.weights_ph = tf.placeholder(tf.float32, shape=(None,))
 
-        self.log_distilled_policy = self.distilled_net.log_policy(self.new_obses_ph)
-        losses,self.entropy,self.target_sum,self.target_sum_2 = online_net.transition_loss(target_net,self.log_distilled_policy, self.obses_ph, self.actions_ph,
+        self.log_distill_policy = self.distill_net.log_policy(self.new_obses_ph)
+        losses,self.distill_loss = online_net.transition_loss(target_net,self.log_distill_policy, self.obses_ph, self.actions_ph,
                                             self.rews_ph, self.new_obses_ph, self.terminals_ph,
                                             self.discounts_ph)
         self.losses = self.weights_ph * losses
         self.loss = tf.reduce_mean(self.losses)
 
-        self.distilled_policy_loss = self.distilled_net.policy_loss(self.obses_ph, self.actions_ph,self.discounts_ph)
-
-        self.distilled_variables = ray.experimental.TensorFlowVariables(self.log_distilled_policy, self.online_net.session)
+        self.distill_variables = ray.experimental.TensorFlowVariables(self.log_distill_policy, self.online_net.session)
 
         assigns = []
         for dst, src in zip(target_net.variables, online_net.variables):
@@ -55,7 +53,10 @@ class DQN:
         self.update_target = tf.group(*assigns)
 
         self.optim = tf.train.AdamOptimizer(learning_rate=1e-4, epsilon=1.5e-4).minimize(self.loss)
-        self.policy_optim = tf.train.AdamOptimizer(learning_rate=1e-4, epsilon=1.5e-4).minimize(self.distilled_policy_loss)
+        distill_optim = tf.train.AdamOptimizer(learning_rate=1e-4, epsilon=1.5e-4)
+        self.distill_grads = distill_optim.compute_gradients(self.distill_loss)
+        self.train_distill_policy = distill_optim.apply_gradients(self.distill_grads)
+
     def feed_dict(self, transitions):
         """
         Generate a feed_dict that feeds the batch of
@@ -86,11 +87,11 @@ class DQN:
         res[self.new_obses_ph] = obs_vect.to_vecs(new_obses)
         return res
 
-    def get_distilled_policy_weights(self):
-        return self.distilled_variables.get_weights()
+    def get_distill_policy_weights(self):
+        return self.distill_variables.get_weights()
 
-    def set_distilled_policy_weights(self,weights):
-        self.distilled_variables.set_weights(weights)
+    def set_distill_policy_weights(self,weights):
+        self.distill_variables.set_weights(weights)
 
     def _discounted_rewards(self, rews):
         res = 0

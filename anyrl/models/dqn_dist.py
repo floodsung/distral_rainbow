@@ -44,10 +44,10 @@ def rainbow_models(session,
     maker = lambda name: NatureDistQNetwork(session, num_actions, obs_vectorizer, name,
                                             num_atoms, min_val, max_val,tau=tau,alpha=alpha,dueling=True,
                                             dense=partial(noisy_net_dense, sigma0=sigma0))
-    # distilled_maker = lambda name: NatureDistQNetwork(session, num_actions, obs_vectorizer, name,
+    # distill_maker = lambda name: NatureDistQNetwork(session, num_actions, obs_vectorizer, name,
     #                                         num_atoms, min_val, max_val,tau=tau,alpha=alpha,dueling=True,
     #                                         dense=tf.layers.dense)
-    return maker('online'), maker('target'),maker('distilled')
+    return maker('online'), maker('target'),maker('distill')
 
 class DistQNetwork(TFQNetwork):
     """
@@ -111,43 +111,34 @@ class DistQNetwork(TFQNetwork):
             'action_dists': dists
         }
 
-    def transition_loss(self, target_net, log_distilled_policy, obses, actions, rews, new_obses, terminals, discounts):
+    def transition_loss(self, target_net, log_distill_policy, obses, actions, rews, new_obses, terminals, discounts):
         with tf.variable_scope(self.name, reuse=True):
             values = self.dist.mean(self.value_func(self.base(new_obses)))
         policies = self.policy_func(values)
 
-        distilled_kl = self.kl_func(policies,tf.stop_gradient(log_distilled_policy))
+        distill_kl = self.kl_func(policies,tf.stop_gradient(log_distill_policy))
 
         with tf.variable_scope(target_net.name, reuse=True):
             target_preds = target_net.value_func(target_net.base(new_obses))
-
             target_preds = tf.where(terminals,
                                     tf.zeros_like(target_preds) - log(self.dist.num_atoms),
                                     target_preds)
-            target_sum_2 = tf.reduce_sum(tf.exp(target_preds),axis=2)
             target_values = self.dist.mean(target_preds)
         entropy = self.entropy_func(target_values)
         discounts = tf.where(terminals, tf.zeros_like(discounts), discounts)
 
         tile_policies = tf.transpose(tf.reshape(tf.tile(policies,multiples=(1,self.dist.num_atoms)),(tf.shape(policies)[0],self.dist.num_atoms, self.num_actions)),perm=[0,2,1])
         target_preds = tf.reduce_sum(tf.exp(target_preds)*tile_policies,axis=1)
-        #print("target_preds shape:",target_preds.get_shape())
-        target_dists = self.dist.add_rewards(target_preds,rews, discounts,entropy,self.tau,distilled_kl,self.alpha)
-        target_sum = tf.reduce_sum(target_preds,axis=1)
+        target_dists = self.dist.add_rewards(target_preds,rews, discounts,entropy,self.tau,distill_kl,self.alpha)
+
+        disill_loss = -self.tau*self.alpha*tf.reduce_sum(self.discounts*self.kl_func(tf.stop_gradient(policies),log_distill_policy))
 
 
         with tf.variable_scope(self.name, reuse=True):
             online_preds = self.value_func(self.base(obses))
             onlines = take_vector_elems(online_preds, actions)
-            return _kl_divergence(tf.stop_gradient(target_dists), onlines),entropy,target_sum,target_sum_2
+            return _kl_divergence(tf.stop_gradient(target_dists), onlines),distill_loss
 
-    def policy_loss(self,obses, actions,discounts):
-        log_probs = self.log_policy(obses)
-
-        action_log_probs = take_vector_elems(log_probs,actions)
-
-        loss = - self.tau*self.alpha*tf.reduce_sum(discounts * action_log_probs)
-        return loss
 
     @property
     def input_dtype(self):
@@ -303,7 +294,7 @@ class ActionDist:
         probs = tf.exp(log_probs)
         return tf.reduce_sum(probs * tf.constant(self.atom_values(), dtype=probs.dtype), axis=-1)
 
-    def add_rewards(self, probs, rewards, discounts,entropy, tau, distilled_kl,alpha):
+    def add_rewards(self, probs, rewards, discounts,entropy, tau, distill_kl,alpha):
         """
         Compute new distributions after adding rewards to
         old distributions.
@@ -319,7 +310,7 @@ class ActionDist:
         """
         atom_rews = tf.tile(tf.constant([self.atom_values()], dtype=probs.dtype),
                             tf.stack([tf.shape(rewards)[0], 1]))
-        fuzzy_idxs = tf.expand_dims(rewards + tau * discounts * entropy + tau*alpha*discounts*distilled_kl, axis=1) + tf.expand_dims(discounts, axis=1) * atom_rews
+        fuzzy_idxs = tf.expand_dims(rewards + tau * discounts * entropy + tau*alpha*discounts*distill_kl, axis=1) + tf.expand_dims(discounts, axis=1) * atom_rews
         fuzzy_idxs = tf.clip_by_value(fuzzy_idxs,self.min_val,self.max_val)
         fuzzy_idxs = (fuzzy_idxs - self.min_val) / self._delta #b
 
