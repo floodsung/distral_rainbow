@@ -116,7 +116,7 @@ class DistQNetwork(TFQNetwork):
             values = self.dist.mean(self.value_func(self.base(new_obses)))
         policies = self.policy_func(values)
 
-        distill_kl = self.kl_func(policies,tf.stop_gradient(log_distill_policy))
+        distill_kl = -self.cross_entropy_func(policies,tf.stop_gradient(log_distill_policy))
 
         with tf.variable_scope(target_net.name, reuse=True):
             target_preds = target_net.value_func(target_net.base(new_obses))
@@ -131,7 +131,7 @@ class DistQNetwork(TFQNetwork):
         target_preds = tf.reduce_sum(tf.exp(target_preds)*tile_policies,axis=1)
         target_dists = self.dist.add_rewards(target_preds,rews, discounts,entropy,self.tau,distill_kl,self.alpha)
 
-        distill_loss = -self.tau*self.alpha*tf.reduce_sum(self.discounts*self.kl_func(tf.stop_gradient(policies),log_distill_policy))
+        distill_loss = tf.reduce_sum(self.cross_entropy_func(tf.stop_gradient(policies),log_distill_policy))
 
 
         with tf.variable_scope(self.name, reuse=True):
@@ -203,8 +203,8 @@ class DistQNetwork(TFQNetwork):
 
         return - tf.reduce_sum(policies * log_policies,axis=1)
 
-    def kl_func(self,policies,log_policies):
-        return tf.reduce_sum(policies*log_policies,axis=1)
+    def cross_entropy_func(self,policies,log_policies):
+        return -tf.reduce_sum(policies*log_policies,axis=1)
 
     # pylint: disable=W0613
     def step_feed_dict(self, observations, states):

@@ -41,7 +41,7 @@ class DistralAgent():
         self.train_interval=1
         self.target_interval=8192
         self.batch_size=32
-        self.min_buffer_size=200
+        self.min_buffer_size=20000
         self.handle_ep=lambda steps, rew: None
         self.next_target_update = self.target_interval
         self.next_train_step = self.train_interval
@@ -113,12 +113,17 @@ def main():
 
     distill_network_variables = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="distill")
     saver = tf.train.Saver(distill_network_variables)
-    checkpoint = tf.train.get_checkpoint_state("./models")
-    if checkpoint and checkpoint.model_checkpoint_path:
-        saver.restore(sess, checkpoint.model_checkpoint_path)
-        print ("Successfully loaded:", checkpoint.model_checkpoint_path)
-    else:
-        print ("Could not find old network weights")
+    # checkpoint = tf.train.get_checkpoint_state("./models")
+    # if checkpoint and checkpoint.model_checkpoint_path:
+    #     saver.restore(sess, checkpoint.model_checkpoint_path)
+    #     print ("Successfully loaded:", checkpoint.model_checkpoint_path)
+    # else:
+    #     print ("Could not find old network weights")
+
+    grad_names = []
+    for grad in local_dqn.distill_grads:
+        if grad[0] != None:
+            grad_names.append(grad[0])
 
     weights = local_dqn.get_distill_policy_weights()
 
@@ -128,15 +133,15 @@ def main():
 
         weights_id = ray.put(weights)
 
-        gradient_ids = [agent.train.remote(weights_id) for agent in agents]
-        gradient_list = ray.get(gradients_ids)
+        gradients_ids = [agent.train.remote(weights_id) for agent in agents]
+        gradients_list = ray.get(gradients_ids)
 
-        if not 0 in gradient_list:
+        if not 0 in gradients_list:
             mean_grads = [sum([gradients[i] for gradients in gradients_list]) / len(gradients_list) for i in range(len(gradients_list[0]))]
-            feed_dict = {grad[0]: mean_grad for (grad, mean_grad) in zip(local_dqn.distill_grads, mean_grads)}
+            feed_dict = {grad: mean_grad for (grad, mean_grad) in zip(grad_names, mean_grads)}
             sess.run(local_dqn.train_distill_policy, feed_dict=feed_dict)
 
-       weights = local_dqn.get_distill_policy_weights()
+        weights = local_dqn.get_distill_policy_weights()
 
         if (iteration+1)% 20000 == 0:
             if not os.path.exists("./models"):
