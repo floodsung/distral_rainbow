@@ -11,8 +11,9 @@ from sonic_util import AllowBacktracking, make_env
 import numpy as np
 import csv
 import ray
+import os
 
-THREAD_NUM = 32
+THREAD_NUM = 5
 NUM_ITER  = 5000000
 
 class DistralAgent():
@@ -80,9 +81,11 @@ class DistralAgent():
                         if grad[0] != None:
                             grad_names.append(grad[0])
 
-                    _,losses,distill_grads = self.sess.run((self.dqn.optim,self.dqn.losses,grad_names),
+                    _,losses,distill_grads,distill_loss = self.sess.run((self.dqn.optim,self.dqn.losses,grad_names,self.dqn.distill_loss),
                                          feed_dict=self.dqn.feed_dict(batch))
                     self.replay_buffer.update_weights(batch, losses)
+                    if self.steps_taken % 100 == 0:
+                        print("steps:",self.steps_taken,"distill_loss:",distill_loss)
 
                 if self.steps_taken >= self.next_target_update:
                     self.next_target_update = self.steps_taken + self.target_interval
