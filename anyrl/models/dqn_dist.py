@@ -131,7 +131,7 @@ class DistQNetwork(TFQNetwork):
         target_preds = tf.reduce_sum(tf.exp(target_preds)*tile_policies,axis=1)
         target_dists = self.dist.add_rewards(target_preds,rews, discounts,entropy,self.tau,distill_kl,self.alpha)
 
-        disill_loss = -self.tau*self.alpha*tf.reduce_sum(self.discounts*self.kl_func(tf.stop_gradient(policies),log_distill_policy))
+        distill_loss = -self.tau*self.alpha*tf.reduce_sum(self.discounts*self.kl_func(tf.stop_gradient(policies),log_distill_policy))
 
 
         with tf.variable_scope(self.name, reuse=True):
