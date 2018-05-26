@@ -21,11 +21,15 @@ AGENT_NUM_PER_THREAD = 5
 @ray.remote(num_cpus=AGENT_NUM_PER_THREAD,num_gpus=1)
 class MultiAgent():
     """docstring for MultiAgent"""
-    def __init__(self,thread_index,action_space,observation_space,num_agent=AGENT_NUM_PER_THREAD):
+    def __init__(self,thread_index,num_agent=AGENT_NUM_PER_THREAD):
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(map(str, ray.get_gpu_ids()))
         config = tf.ConfigProto()
         config.gpu_options.allow_growth = True
         sess = tf.Session(config=config)
+
+        env = AllowBacktracking(make_env())
+        action_space = env.action_space.n
+        observation_space = env.observation_space
 
         distill_net = distill_network(sess,
                                   action_space,
@@ -135,7 +139,7 @@ def main():
     observation_space = env.observation_space
 
     # init multi agents
-    agents = [MultiAgent.remote(i,action_space,observation_space) for i in range(THREAD_NUM)]
+    agents = [MultiAgent.remote(i) for i in range(THREAD_NUM)]
 
     # init session
     config = tf.ConfigProto()
@@ -184,20 +188,20 @@ def main():
         for gradients in gradients_raw:
             for gradient in gradients:
                 gradients_list.append(gradient)
-        
+
         if not 0 in gradients_list:
             mean_grads = [sum([gradients[i] for gradients in gradients_list]) / len(gradients_list) for i in range(len(gradients_list[0]))]
             feed_dict = {grad: mean_grad for (grad, mean_grad) in zip(grad_names, mean_grads)}
             sess.run(local_dqn.train_distill_policy, feed_dict=feed_dict)
 
         weights = local_dqn.get_distill_policy_weights()
-        
+
         if (iteration+1)% 20000 == 0:
             if not os.path.exists("./models"):
                 os.makedirs("./models")
             saver.save(sess, './models/' + 'network', global_step = 10000)
 
-        
+
         #print("iter:",iteration, "time:",time.time() - start)
 
 
