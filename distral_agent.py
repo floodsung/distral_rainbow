@@ -12,26 +12,28 @@ import numpy as np
 import csv
 import ray
 import time
+import os
 
 THREAD_NUM = 4
 NUM_ITER  = 5000000
-AGENT_NUM_PER_THREAD = 4
+AGENT_NUM_PER_THREAD = 5
 
 @ray.remote(num_cpus=AGENT_NUM_PER_THREAD,num_gpus=1)
 class MultiAgent():
     """docstring for MultiAgent"""
     def __init__(self,thread_index,action_space,observation_space,num_agent=AGENT_NUM_PER_THREAD):
+        os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(map(str, ray.get_gpu_ids()))
         config = tf.ConfigProto()
         config.gpu_options.allow_growth = True
         sess = tf.Session(config=config)
 
-        distill_network = distill_network(sess,
+        distill_net = distill_network(sess,
                                   action_space,
                                   gym_space_vectorizer(observation_space),
                                   min_val=-200,
                                   max_val=200)
 
-        self.agents = [DistralAgent(sess,i,thread_index,distill_network,action_space,observation_space) for i in range(num_agent)]
+        self.agents = [DistralAgent(sess,i,thread_index,distill_net,action_space,observation_space) for i in range(num_agent)]
         sess.run(tf.global_variables_initializer())
         [sess.run(agent.dqn.update_target) for agent in self.agents]
         print("init var")
@@ -42,7 +44,7 @@ class MultiAgent():
 
         return distill_grads_list
 
-@ray.remote(num_cpus=1)
+@ray.remote
 class SonicEnv():
 
     def __init__(self,env_index):
@@ -178,9 +180,11 @@ def main():
 
         weights_id = ray.put(weights)
         gradients_ids = [agent.train.remote(weights_id) for agent in agents]
-        gradients_list = np.array(ray.get(gradients_ids)).reshape(THREAD_NUM*AGENT_NUM_PER_THREAD,:)
-        print(gradients_list.shape)
-        # reshape gradie
+        gradients_raw = ray.get(gradients_ids)
+        gradients_list = []
+        for gradients in gradients_raw:
+            for gradient in gradients:
+                gradients_list.append(gradient)
 
         if not 0 in gradients_list:
             mean_grads = [sum([gradients[i] for gradients in gradients_list]) / len(gradients_list) for i in range(len(gradients_list[0]))]
@@ -188,14 +192,14 @@ def main():
             sess.run(local_dqn.train_distill_policy, feed_dict=feed_dict)
 
         weights = local_dqn.get_distill_policy_weights()
-
+        
         if (iteration+1)% 20000 == 0:
             if not os.path.exists("./models"):
                 os.makedirs("./models")
             saver.save(sess, './models/' + 'network', global_step = 10000)
 
-        if iteration % 10 == 0:
-            print("iter time:",time.time() - start)
+        
+        print("iter:",iteration, "time:",time.time() - start)
 
 
 if __name__ == '__main__':

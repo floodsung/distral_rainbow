@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 from collections import OrderedDict,deque
 import numpy as np
 import time
+import ray
 
 from .rollers import _reduce_states, _inject_state, _reduce_model_outs
 
