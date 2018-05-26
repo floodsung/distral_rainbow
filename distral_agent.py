@@ -4,7 +4,7 @@ from anyrl.algos import DQN
 from anyrl.envs import BatchedGymEnv
 from anyrl.envs.wrappers import BatchedFrameStack
 from anyrl.models import rainbow_models
-from anyrl.rollouts import BatchedPlayer, PrioritizedReplayBuffer, NStepPlayer
+from anyrl.rollouts import BatchedPlayer, PrioritizedReplayBuffer, NStepPlayer,BasicPlayer
 from anyrl.spaces import gym_space_vectorizer
 
 from sonic_util import AllowBacktracking, make_env
@@ -16,28 +16,73 @@ import time
 THREAD_NUM = 32
 NUM_ITER  = 5000000
 
-class DistralAgent():
+
+@ray.remote(num_cpus=4,num_gpus=1)
+class MultiAgent():
+    """docstring for MultiAgent"""
+    def __init__(self, num_agent=4):
+        config = tf.ConfigProto()
+        config.gpu_options.allow_growth = True 
+        sess = tf.Session(config=config)
+
+        agents = [DistralAgent(sess,i) for i in range(num_agent)]
+
+        sess.run(tf.global_variables_initializer())
+
+        [agent.update_target() for agent in agents]
+
+    def train(self,distill_policy_weights):
+
+        distill_grads_list = [agent.train(distill_policy_weights) for agent in agents]
+
+        return distill_grads_list
+
+@ray.remote(num_cpus=1)
+class SonicEnv():
 
     def __init__(self,env_index):
+        train_file = csv.reader(open('./sonic-train.csv','r'),delimiter=',')
+        self.games = []
+        for i,row in enumerate(train_file):
+            if i == 0:
+                continue
+            self.games.append(row)
+
+        self.env = AllowBacktracking(make_env(game=self.games[env_index][0],state=self.games[env_index][1]))
+
+    def step(self,action):
+        return self.env.step(action)
+
+    def reset(self, **kwargs):
+        return self.env.reset(**kwargs)
+
+    def action_space(self):
+        return self.env.action_space.n
+
+    def observation_space(self):
+        return self.env.observation_space
+
+
+class DistralAgent():
+
+    def __init__(self,sess,env_index):
         # step 1: init env
         self.env_index = env_index
-        self.env = self.init_env(env_index)
-
-        # step 2: init rainbow
-        config = tf.ConfigProto()
-        config.gpu_options.allow_growth = True
-        self.sess = tf.Session(config=config)
-
-        self.dqn = DQN(*rainbow_models(self.sess,
-                                  self.env.action_space.n,
-                                  gym_space_vectorizer(self.env.observation_space),
-                                  min_val=-200,
-                                  max_val=200))
-        self.player = NStepPlayer(BatchedPlayer(self.env, self.dqn.online_net), 3)
-        self.sess.run(tf.global_variables_initializer())
+        self.env = SonicEnv.remote(env_index)
+        action_space = ray.get(self.env.action_space.remote())
+        observation_space = ray.get(self.env.observation_space.remote())
+  
+        self.sess = sess
+        with tf.Graph().as_default():
+            self.dqn = DQN(*rainbow_models(self.sess,
+                                          action_space,
+                                          gym_space_vectorizer(observation_space),
+                                          min_val=-200,
+                                          max_val=200))
+        self.player = NStepPlayer(BasicPlayer(self.env, self.dqn.online_net), 3)
 
         self.replay_buffer = PrioritizedReplayBuffer(500000, 0.5, 0.4, epsilon=0.1)
-        self.sess.run(self.dqn.update_target)
+        #self.sess.run(self.dqn.update_target)
         self.steps_taken = 0
         self.train_interval=1
         self.target_interval=8192
@@ -46,6 +91,9 @@ class DistralAgent():
         self.handle_ep=lambda steps, rew: None
         self.next_target_update = self.target_interval
         self.next_train_step = self.train_interval
+
+    def update_target(self):
+        self.sess.run(self.dqn.update_target)
 
 
     def init_env(self,env_index):

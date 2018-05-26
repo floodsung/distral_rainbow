@@ -87,12 +87,12 @@ class BasicPlayer(Player):
         if self._needs_reset:
             self._needs_reset = False
             self._cur_state = self.model.start_state(1)
-            self._last_obs = self.env.reset()
+            self._last_obs = ray.get(self.env.reset.remote())
             self._episode_id += 1
             self._episode_step = 0
             self._total_reward = 0.0
         output = self.model.step([self._last_obs], self._cur_state)
-        new_obs, rew, self._needs_reset, info = self.env.step(output['actions'][0])
+        new_obs, rew, self._needs_reset, info = ray.get(self.env.step.remote(output['actions'][0]))
         self._total_reward += rew
         res = {
             'obs': self._last_obs,
