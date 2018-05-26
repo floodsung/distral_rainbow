@@ -3,7 +3,7 @@ import tensorflow as tf
 from anyrl.algos import DQN
 from anyrl.envs import BatchedGymEnv
 from anyrl.envs.wrappers import BatchedFrameStack
-from anyrl.models import rainbow_models
+from anyrl.models import rainbow_models,distill_network
 from anyrl.rollouts import BatchedPlayer, PrioritizedReplayBuffer, NStepPlayer,BasicPlayer
 from anyrl.spaces import gym_space_vectorizer
 
@@ -15,24 +15,30 @@ import time
 
 THREAD_NUM = 4
 NUM_ITER  = 5000000
+AGENT_NUM_PER_THREAD = 4
 
-
-@ray.remote(num_cpus=4,num_gpus=1)
+@ray.remote(num_cpus=AGENT_NUM_PER_THREAD,num_gpus=1)
 class MultiAgent():
     """docstring for MultiAgent"""
-    def __init__(self, num_agent=4):
+    def __init__(self,thread_index,action_space,observation_space,num_agent=AGENT_NUM_PER_THREAD):
         config = tf.ConfigProto()
-        config.gpu_options.allow_growth = True 
+        config.gpu_options.allow_growth = True
         sess = tf.Session(config=config)
 
-        self.agents = [DistralAgent(sess,i) for i in range(num_agent)]
+        distill_network = distill_network(sess,
+                                  action_space,
+                                  gym_space_vectorizer(observation_space),
+                                  min_val=-200,
+                                  max_val=200)
+
+        self.agents = [DistralAgent(sess,i,thread_index,distill_network,action_space,observation_space) for i in range(num_agent)]
         sess.run(tf.global_variables_initializer())
         [sess.run(agent.dqn.update_target) for agent in self.agents]
         print("init var")
 
     def train(self,distill_policy_weights):
-
-        distill_grads_list = [agent.train(distill_policy_weights) for agent in self.agents]
+        self.agents[0].dqn.set_distill_policy_weights(distill_policy_weights)
+        distill_grads_list = [agent.train() for agent in self.agents]
 
         return distill_grads_list
 
@@ -64,20 +70,18 @@ class SonicEnv():
 
 class DistralAgent():
 
-    def __init__(self,sess,env_index):
+    def __init__(self,sess,agent_index,thread_index,distill_network,action_space,observation_space):
         # step 1: init env
-        self.env_index = env_index
-        self.env = SonicEnv.remote(env_index)
-        action_space = ray.get(self.env.action_space.remote())
-        observation_space = ray.get(self.env.observation_space.remote())
-  
+        self.env_index = agent_index + thread_index*AGENT_NUM_PER_THREAD
+        self.env = SonicEnv.remote(self.env_index)
+
         self.sess = sess
-        #with tf.Graph().as_default():
         self.dqn = DQN(*rainbow_models(self.sess,
+                                          agent_index,
                                           action_space,
                                           gym_space_vectorizer(observation_space),
                                           min_val=-200,
-                                          max_val=200))
+                                          max_val=200),distill_network)
         self.player = NStepPlayer(BasicPlayer(self.env, self.dqn.online_net), 3)
 
         self.replay_buffer = PrioritizedReplayBuffer(500000, 0.5, 0.4, epsilon=0.1)
@@ -88,25 +92,9 @@ class DistralAgent():
         self.min_buffer_size=200
         self.handle_ep=lambda steps, rew: None
         self.next_target_update = self.target_interval
-        self.next_train_step = self.train_interval        
+        self.next_train_step = self.train_interval
 
-
-    def init_env(self,env_index):
-        train_file = csv.reader(open('./sonic-train.csv','r'),delimiter=',')
-        self.games = []
-        for i,row in enumerate(train_file):
-            if i == 0:
-                continue
-            self.games.append(row)
-
-        env = AllowBacktracking(make_env(game=self.games[env_index][0],state=self.games[env_index][1]))
-
-        env = BatchedFrameStack(BatchedGymEnv([[env]]), num_images=4, concat=False)
-        return env
-
-    def train(self,distill_policy_weights):
-
-        self.dqn.set_distill_policy_weights(distill_policy_weights)
+    def train(self):
 
         transitions = self.player.play()
         distill_grads = 0
@@ -139,16 +127,29 @@ def main():
 
     ray.init()
 
-    agents = [MultiAgent.remote() for i in range(THREAD_NUM)]
-    print("ok1")
-    #joint agent
+
+    # create an env for env info
     env = AllowBacktracking(make_env())
+    action_space = env.action_space.n
+    observation_space = env.observation_space
+
+    # init multi agents
+    agents = [MultiAgent.remote(i,action_space,observation_space) for i in range(THREAD_NUM)]
+
+    # init session
     config = tf.ConfigProto()
-    config.gpu_options.allow_growth = True # pylint: disable=E1101
+    config.gpu_options.allow_growth = True
     sess = tf.Session(config=config)
-    local_dqn = DQN(*rainbow_models(sess,
-                                  env.action_space.n,
-                                  gym_space_vectorizer(env.observation_space),
+
+    # init local dqn with distill network
+    local_dqn = DQN(*rainbow_models(sess,0,
+                                  action_space,
+                                  gym_space_vectorizer(observation_space),
+                                  min_val=-200,
+                                  max_val=200),
+                    distill_network(sess,
+                                  action_space,
+                                  gym_space_vectorizer(observation_space),
                                   min_val=-200,
                                   max_val=200))
     sess.run(tf.global_variables_initializer())
@@ -168,7 +169,7 @@ def main():
             grad_names.append(grad[0])
 
     weights = local_dqn.get_distill_policy_weights()
-    
+
 
     for iteration in range(NUM_ITER):
         start = time.time()
@@ -176,24 +177,25 @@ def main():
             print("iter:",iteration)
 
         weights_id = ray.put(weights)
-        print("ok2")
         gradients_ids = [agent.train.remote(weights_id) for agent in agents]
-        gradients_list = ray.get(gradients_ids)
+        gradients_list = np.array(ray.get(gradients_ids)).reshape(THREAD_NUM*AGENT_NUM_PER_THREAD,:)
         print(gradients_list.shape)
+        # reshape gradie
 
-#         if not 0 in gradients_list:
-#             mean_grads = [sum([gradients[i] for gradients in gradients_list]) / len(gradients_list) for i in range(len(gradients_list[0]))]
-#             feed_dict = {grad: mean_grad for (grad, mean_grad) in zip(grad_names, mean_grads)}
-#             sess.run(local_dqn.train_distill_policy, feed_dict=feed_dict)
+        if not 0 in gradients_list:
+            mean_grads = [sum([gradients[i] for gradients in gradients_list]) / len(gradients_list) for i in range(len(gradients_list[0]))]
+            feed_dict = {grad: mean_grad for (grad, mean_grad) in zip(grad_names, mean_grads)}
+            sess.run(local_dqn.train_distill_policy, feed_dict=feed_dict)
 
-#         weights = local_dqn.get_distill_policy_weights()
+        weights = local_dqn.get_distill_policy_weights()
 
-#         if (iteration+1)% 20000 == 0:
-#             if not os.path.exists("./models"):
-#                 os.makedirs("./models")
-#             saver.save(sess, './models/' + 'network', global_step = 10000)
-#         if iteration % 10 == 0:
-#             print("iter time:",time.time() - start)
+        if (iteration+1)% 20000 == 0:
+            if not os.path.exists("./models"):
+                os.makedirs("./models")
+            saver.save(sess, './models/' + 'network', global_step = 10000)
+
+        if iteration % 10 == 0:
+            print("iter time:",time.time() - start)
 
 
 if __name__ == '__main__':
