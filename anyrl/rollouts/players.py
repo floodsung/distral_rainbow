@@ -108,9 +108,12 @@ class BasicPlayer(Player):
             'is_last': self._needs_reset,
             'total_reward': self._total_reward
         }
+        if self._needs_reset:
+            print("episode:",self._episode_id,"result:",self._total_reward)
         self._cur_state = output['states']
         self._last_obs = new_obs
         self._episode_step += 1
+        
         return res
 
 class NStepPlayer(Player):

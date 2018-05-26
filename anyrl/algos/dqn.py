@@ -54,7 +54,7 @@ class DQN:
 
         self.optim = tf.train.AdamOptimizer(learning_rate=1e-4, epsilon=1.5e-4).minimize(self.loss)
         
-        with tf.variable_scope("distill", reuse=tf.AUTO_REUSE):
+        with tf.variable_scope("adam", reuse=tf.AUTO_REUSE):
             distill_optim = tf.train.AdamOptimizer(learning_rate=1e-4, epsilon=1.5e-4)
             self.distill_grads = distill_optim.compute_gradients(self.distill_loss)
             self.train_distill_policy = distill_optim.apply_gradients(self.distill_grads)

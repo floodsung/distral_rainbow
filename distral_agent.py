@@ -36,7 +36,6 @@ class MultiAgent():
         self.agents = [DistralAgent(sess,i,thread_index,distill_net,action_space,observation_space) for i in range(num_agent)]
         sess.run(tf.global_variables_initializer())
         [sess.run(agent.dqn.update_target) for agent in self.agents]
-        print("init var")
 
     def train(self,distill_policy_weights):
         self.agents[0].dqn.set_distill_policy_weights(distill_policy_weights)
@@ -91,7 +90,7 @@ class DistralAgent():
         self.train_interval=1
         self.target_interval=8192
         self.batch_size=32
-        self.min_buffer_size=200
+        self.min_buffer_size=2000
         self.handle_ep=lambda steps, rew: None
         self.next_target_update = self.target_interval
         self.next_train_step = self.train_interval
@@ -158,12 +157,12 @@ def main():
 
     distill_network_variables = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="distill")
     saver = tf.train.Saver(distill_network_variables)
-    # checkpoint = tf.train.get_checkpoint_state("./models")
-    # if checkpoint and checkpoint.model_checkpoint_path:
-    #     saver.restore(sess, checkpoint.model_checkpoint_path)
-    #     print ("Successfully loaded:", checkpoint.model_checkpoint_path)
-    # else:
-    #     print ("Could not find old network weights")
+#     checkpoint = tf.train.get_checkpoint_state("./models")
+#     if checkpoint and checkpoint.model_checkpoint_path:
+#         saver.restore(sess, checkpoint.model_checkpoint_path)
+#         print ("Successfully loaded:", checkpoint.model_checkpoint_path)
+#     else:
+#         print ("Could not find old network weights")
 
     grad_names = []
     for grad in local_dqn.distill_grads:
@@ -174,7 +173,7 @@ def main():
 
 
     for iteration in range(NUM_ITER):
-        start = time.time()
+        #start = time.time()
         if iteration % 1000 == 0:
             print("iter:",iteration)
 
@@ -185,7 +184,7 @@ def main():
         for gradients in gradients_raw:
             for gradient in gradients:
                 gradients_list.append(gradient)
-
+        
         if not 0 in gradients_list:
             mean_grads = [sum([gradients[i] for gradients in gradients_list]) / len(gradients_list) for i in range(len(gradients_list[0]))]
             feed_dict = {grad: mean_grad for (grad, mean_grad) in zip(grad_names, mean_grads)}
@@ -199,7 +198,7 @@ def main():
             saver.save(sess, './models/' + 'network', global_step = 10000)
 
         
-        print("iter:",iteration, "time:",time.time() - start)
+        #print("iter:",iteration, "time:",time.time() - start)
 
 
 if __name__ == '__main__':
