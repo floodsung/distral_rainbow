@@ -40,7 +40,7 @@ class DistralAgent():
         saver = tf.train.Saver(distill_network_variables)
         checkpoint = tf.train.get_checkpoint_state("./models")
         if checkpoint and checkpoint.model_checkpoint_path:
-            saver.restore(sess, checkpoint.model_checkpoint_path)
+            saver.restore(self.sess, checkpoint.model_checkpoint_path)
             print ("Successfully loaded:", checkpoint.model_checkpoint_path)
         else:
             print ("Could not find old network weights")
