@@ -12,8 +12,9 @@ import numpy as np
 import csv
 import ray
 import os
+import time
 
-THREAD_NUM = 5
+THREAD_NUM = 20
 NUM_ITER  = 5000000
 
 class DistralAgent():
@@ -62,9 +63,7 @@ class DistralAgent():
         return env
 
     def train(self,distill_policy_weights):
-
         self.dqn.set_distill_policy_weights(distill_policy_weights)
-
         transitions = self.player.play()
         distill_grads = 0
         for trans in transitions:
@@ -84,9 +83,8 @@ class DistralAgent():
                     _,losses,distill_grads,distill_loss = self.sess.run((self.dqn.optim,self.dqn.losses,grad_names,self.dqn.distill_loss),
                                          feed_dict=self.dqn.feed_dict(batch))
                     self.replay_buffer.update_weights(batch, losses)
-                    if self.steps_taken % 100 == 0:
-                        print("steps:",self.steps_taken,"distill_loss:",distill_loss)
-
+                    # if self.steps_taken % 100 == 0:
+                    #     print("steps:",self.steps_taken,"distill_loss:",distill_loss)
                 if self.steps_taken >= self.next_target_update:
                     self.next_target_update = self.steps_taken + self.target_interval
                     self.sess.run(self.dqn.update_target)
@@ -116,12 +114,12 @@ def main():
 
     distill_network_variables = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="distill")
     saver = tf.train.Saver(distill_network_variables)
-    # checkpoint = tf.train.get_checkpoint_state("./models")
-    # if checkpoint and checkpoint.model_checkpoint_path:
-    #     saver.restore(sess, checkpoint.model_checkpoint_path)
-    #     print ("Successfully loaded:", checkpoint.model_checkpoint_path)
-    # else:
-    #     print ("Could not find old network weights")
+    checkpoint = tf.train.get_checkpoint_state("./models")
+    if checkpoint and checkpoint.model_checkpoint_path:
+        saver.restore(sess, checkpoint.model_checkpoint_path)
+        print ("Successfully loaded:", checkpoint.model_checkpoint_path)
+    else:
+        print ("Could not find old network weights")
 
     grad_names = []
     for grad in local_dqn.distill_grads:
@@ -137,12 +135,15 @@ def main():
         weights_id = ray.put(weights)
 
         gradients_ids = [agent.train.remote(weights_id) for agent in agents]
+
         gradients_list = ray.get(gradients_ids)
 
         if not 0 in gradients_list:
+
             mean_grads = [sum([gradients[i] for gradients in gradients_list]) / len(gradients_list) for i in range(len(gradients_list[0]))]
             feed_dict = {grad: mean_grad for (grad, mean_grad) in zip(grad_names, mean_grads)}
             sess.run(local_dqn.train_distill_policy, feed_dict=feed_dict)
+
 
         weights = local_dqn.get_distill_policy_weights()
 
