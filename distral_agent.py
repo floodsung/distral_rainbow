@@ -57,7 +57,7 @@ class DistralAgent():
         self.next_train_step = self.train_interval
 
 
-    def init_env(self,env_index):
+    def init_env(self):
 
         env = AllowBacktracking(make_env())
 
