@@ -10,7 +10,6 @@ from anyrl.spaces import gym_space_vectorizer
 from sonic_util import AllowBacktracking, make_env
 import numpy as np
 import csv
-import ray
 import os
 import time
 

@@ -7,7 +7,6 @@ import time
 import tensorflow as tf
 import os
 import numpy as np
-import ray
 
 # pylint: disable=R0902,R0903
 
@@ -44,8 +43,6 @@ class DQN:
                                             self.discounts_ph)
         self.losses = self.weights_ph * losses
         self.loss = tf.reduce_mean(self.losses)
-
-        self.distill_variables = ray.experimental.TensorFlowVariables(self.log_distill_policy, self.online_net.session)
 
         assigns = []
         for dst, src in zip(target_net.variables, online_net.variables):
@@ -86,12 +83,6 @@ class DQN:
                 new_obses.append(trans['new_obs'])
         res[self.new_obses_ph] = obs_vect.to_vecs(new_obses)
         return res
-
-    def get_distill_policy_weights(self):
-        return self.distill_variables.get_weights()
-
-    def set_distill_policy_weights(self,weights):
-        self.distill_variables.set_weights(weights)
 
     def _discounted_rewards(self, rews):
         res = 0
