@@ -22,7 +22,7 @@ def rainbow_models(session,
                    min_val=-10,
                    max_val=10,
                    sigma0=0.5,
-                   tau = 0.2,
+                   tau = 0.1,
                    alpha=0.5):
     """
     Create the models used for Rainbow
@@ -131,7 +131,7 @@ class DistQNetwork(TFQNetwork):
         target_preds = tf.reduce_sum(tf.exp(target_preds)*tile_policies,axis=1)
         target_dists = self.dist.add_rewards(target_preds,rews, discounts,entropy,self.tau,distill_kl,self.alpha)
 
-        distill_loss = tf.reduce_sum(self.cross_entropy_func(tf.stop_gradient(policies),log_distill_policy))
+        distill_loss = tf.reduce_mean(self.cross_entropy_func(tf.stop_gradient(policies),log_distill_policy))
 
 
         with tf.variable_scope(self.name, reuse=True):
