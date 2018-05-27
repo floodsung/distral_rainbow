@@ -116,7 +116,7 @@ class DistQNetwork(TFQNetwork):
             values = self.dist.mean(self.value_func(self.base(new_obses)))
         policies = self.policy_func(values)
 
-        distill_kl = -self.cross_entropy_func(policies,tf.stop_gradient(log_distill_policy))
+        #distill_kl = -self.cross_entropy_func(policies,tf.stop_gradient(log_distill_policy))
 
         with tf.variable_scope(target_net.name, reuse=True):
             target_preds = target_net.value_func(target_net.base(new_obses))
@@ -129,9 +129,9 @@ class DistQNetwork(TFQNetwork):
 
         tile_policies = tf.transpose(tf.reshape(tf.tile(policies,multiples=(1,self.dist.num_atoms)),(tf.shape(policies)[0],self.dist.num_atoms, self.num_actions)),perm=[0,2,1])
         target_preds = tf.reduce_sum(tf.exp(target_preds)*tile_policies,axis=1)
-        target_dists = self.dist.add_rewards(target_preds,rews, discounts,entropy,self.tau,distill_kl,self.alpha)
+        target_dists = self.dist.add_rewards(target_preds,rews, discounts,entropy,self.tau,0,self.alpha)
 
-        distill_loss = tf.reduce_sum(self.cross_entropy_func(tf.stop_gradient(policies),log_distill_policy))
+        distill_loss = tf.reduce_mean(self.cross_entropy_func(tf.stop_gradient(policies),log_distill_policy))
 
 
         with tf.variable_scope(self.name, reuse=True):
@@ -310,7 +310,7 @@ class ActionDist:
         """
         atom_rews = tf.tile(tf.constant([self.atom_values()], dtype=probs.dtype),
                             tf.stack([tf.shape(rewards)[0], 1]))
-        fuzzy_idxs = tf.expand_dims(rewards + tau * discounts * entropy + tau*alpha*discounts*distill_kl, axis=1) + tf.expand_dims(discounts, axis=1) * atom_rews
+        fuzzy_idxs = tf.expand_dims(rewards + tau * discounts * entropy, axis=1) + tf.expand_dims(discounts, axis=1) * atom_rews
         fuzzy_idxs = tf.clip_by_value(fuzzy_idxs,self.min_val,self.max_val)
         fuzzy_idxs = (fuzzy_idxs - self.min_val) / self._delta #b
 

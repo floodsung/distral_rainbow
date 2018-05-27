@@ -45,6 +45,7 @@ class DistralAgent():
             print ("Could not find old network weights")
 
         self.replay_buffer = PrioritizedReplayBuffer(500000, 0.5, 0.4, epsilon=0.1)
+        self.sess.run(self.dqn.update_online)
         self.sess.run(self.dqn.update_target)
         self.steps_taken = 0
         self.train_interval=1

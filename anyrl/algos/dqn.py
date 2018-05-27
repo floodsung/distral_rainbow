@@ -44,6 +44,13 @@ class DQN:
         self.losses = self.weights_ph * losses
         self.loss = tf.reduce_mean(self.losses)
 
+
+
+        assigns = []
+        for dst, src in zip(online_net.variables, distill_net.variables):
+            assigns.append(tf.assign(dst, src))
+        self.update_online = tf.group(*assigns)
+
         assigns = []
         for dst, src in zip(target_net.variables, online_net.variables):
             assigns.append(tf.assign(dst, src))
