@@ -32,7 +32,7 @@ class DistralAgent():
                                   gym_space_vectorizer(self.env.observation_space),
                                   min_val=-200,
                                   max_val=200))
-        self.player = NStepPlayer(BatchedPlayer(self.env, self.dqn.online_net), 3)
+        self.player = NStepPlayer(BatchedPlayer(self.env, self.dqn.distill_net), 3)
         self.sess.run(tf.global_variables_initializer())
 
         distill_network_variables = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="distill")
@@ -64,6 +64,8 @@ class DistralAgent():
         return env
 
     def train(self):
+        if self.steps_taken > 20000:
+            self.player = NStepPlayer(BatchedPlayer(self.env, self.dqn.online_net), 3)
         transitions = self.player.play()
         for trans in transitions:
                 if trans['is_last']:
