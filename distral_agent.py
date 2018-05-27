@@ -54,6 +54,7 @@ class DistralAgent():
         self.handle_ep=lambda steps, rew: None
         self.next_target_update = self.target_interval
         self.next_train_step = self.train_interval
+        self.playerchanged = False
 
 
     def init_env(self):
@@ -64,8 +65,9 @@ class DistralAgent():
         return env
 
     def train(self):
-        if self.steps_taken > 20000:
-            self.player = NStepPlayer(BatchedPlayer(self.env, self.dqn.online_net), 3)
+        if self.steps_taken > 50000 and not self.playerchanged:
+            self.player.model = self.dqn.online_net
+            self.playerchanged = True
         transitions = self.player.play()
         for trans in transitions:
                 if trans['is_last']:
