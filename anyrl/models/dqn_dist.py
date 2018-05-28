@@ -200,11 +200,12 @@ class DistQNetwork(TFQNetwork):
     def entropy_func(self,values_batch):
         policies = tf.nn.softmax(1/self.tau * values_batch,axis=1)
         log_policies = tf.nn.log_softmax(1/self.tau * values_batch,axis=1)
-
-        return - tf.reduce_sum(policies * log_policies,axis=1)
+        masked_diff = tf.where(tf.equal(policies, 0), tf.zeros_like(policies), log_policies)
+        return - tf.reduce_sum(policies * masked_diff,axis=1)
 
     def cross_entropy_func(self,policies,log_policies):
-        return -tf.reduce_sum(policies*log_policies,axis=1)
+        masked_diff = tf.where(tf.equal(policies, 0), tf.zeros_like(policies), log_policies)
+        return -tf.reduce_sum(policies*masked_diff,axis=1)
 
     # pylint: disable=W0613
     def step_feed_dict(self, observations, states):
