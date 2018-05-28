@@ -6,8 +6,8 @@ from anyrl.envs.wrappers import BatchedFrameStack
 from anyrl.models import rainbow_models
 from anyrl.rollouts import BatchedPlayer, PrioritizedReplayBuffer, NStepPlayer
 from anyrl.spaces import gym_space_vectorizer
-
 from sonic_util import AllowBacktracking, make_env
+import gym_remote.exceptions as gre
 import numpy as np
 import csv
 import os
@@ -78,6 +78,7 @@ class DistralAgent():
 
                     _,losses = self.sess.run((self.dqn.optim,self.dqn.losses),
                                          feed_dict=self.dqn.feed_dict(batch))
+                    losses = losses.clip(0)
                     self.replay_buffer.update_weights(batch, losses)
                     # if self.steps_taken % 100 == 0:
                     #     print("steps:",self.steps_taken,"distill_loss:",distill_loss)
@@ -101,7 +102,10 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except gre.GymRemoteError as exc:
+        print('exception', exc)
 
 
 
