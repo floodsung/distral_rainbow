@@ -14,9 +14,9 @@ import ray
 import time
 import os
 
-THREAD_NUM = 4
+THREAD_NUM = 8
 NUM_ITER  = 5000000
-AGENT_NUM_PER_THREAD = 5
+AGENT_NUM_PER_THREAD = 7
 
 @ray.remote(num_cpus=AGENT_NUM_PER_THREAD,num_gpus=1)
 class MultiAgent():
@@ -78,6 +78,7 @@ class DistralAgent():
     def __init__(self,sess,agent_index,thread_index,distill_network,action_space,observation_space):
         # step 1: init env
         self.env_index = agent_index + thread_index*AGENT_NUM_PER_THREAD
+        print("create env:",self.env_index)
         self.env = SonicEnv.remote(self.env_index)
 
         self.sess = sess
