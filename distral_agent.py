@@ -16,7 +16,7 @@ import os
 
 THREAD_NUM = 4
 NUM_ITER  = 5000000
-AGENT_NUM_PER_THREAD = 5
+AGENT_NUM_PER_THREAD = 8
 
 @ray.remote(num_cpus=AGENT_NUM_PER_THREAD,num_gpus=1)
 class MultiAgent():
