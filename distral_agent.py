@@ -120,6 +120,7 @@ class DistralAgent():
 
                     _,losses,distill_grads = self.sess.run((self.dqn.optim,self.dqn.losses,grad_names),
                                          feed_dict=self.dqn.feed_dict(batch))
+                    losses = np.array(losses).clip(0)
                     self.replay_buffer.update_weights(batch, losses)
 
                 if self.steps_taken >= self.next_target_update:
