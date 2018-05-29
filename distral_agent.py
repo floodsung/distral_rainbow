@@ -67,24 +67,24 @@ class DistralAgent():
     def train(self):
 
         transitions = self.player.play()
-        # for trans in transitions:
-        #         if trans['is_last']:
-        #             self.handle_ep(trans['episode_step'] + 1, trans['total_reward'])
-        #         self.replay_buffer.add_sample(trans)
-        #         self.steps_taken += 1
-        #         if self.replay_buffer.size >= self.min_buffer_size and self.steps_taken >= self.next_train_step:
-        #             self.next_train_step = self.steps_taken + self.train_interval
-        #             batch = self.replay_buffer.sample(self.batch_size)
+        for trans in transitions:
+            if trans['is_last']:
+                self.handle_ep(trans['episode_step'] + 1, trans['total_reward'])
+            self.replay_buffer.add_sample(trans)
+            self.steps_taken += 1
+            if self.replay_buffer.size >= self.min_buffer_size and self.steps_taken >= self.next_train_step:
+                self.next_train_step = self.steps_taken + self.train_interval
+                batch = self.replay_buffer.sample(self.batch_size)
 
-        #             _,losses = self.sess.run((self.dqn.optim,self.dqn.losses),
-        #                                  feed_dict=self.dqn.feed_dict(batch))
-        #             losses = losses.clip(0)
-        #             self.replay_buffer.update_weights(batch, losses)
-        #             # if self.steps_taken % 100 == 0:
-        #             #     print("steps:",self.steps_taken,"distill_loss:",distill_loss)
-        #         if self.steps_taken >= self.next_target_update:
-        #             self.next_target_update = self.steps_taken + self.target_interval
-        #             self.sess.run(self.dqn.update_target)
+                _,losses = self.sess.run((self.dqn.optim,self.dqn.losses),
+                                     feed_dict=self.dqn.feed_dict(batch))
+                losses = losses.clip(0)
+                self.replay_buffer.update_weights(batch, losses)
+                # if self.steps_taken % 100 == 0:
+                #     print("steps:",self.steps_taken,"distill_loss:",distill_loss)
+            if self.steps_taken >= self.next_target_update:
+                self.next_target_update = self.steps_taken + self.target_interval
+                self.sess.run(self.dqn.update_target)
 
 
 
