@@ -9,6 +9,13 @@ import os
 import numpy as np
 import ray
 
+def safety_check(tensor):
+    try:
+        rt = tf.check_numerics(tensor,"tensor nan")
+    except:
+        pdb.set_trace()
+    return rt
+
 # pylint: disable=R0902,R0903
 
 class DQN:
@@ -39,11 +46,11 @@ class DQN:
         self.weights_ph = tf.placeholder(tf.float32, shape=(None,))
 
         self.log_distill_policy = self.distill_net.log_policy(self.new_obses_ph)
-        losses,self.distill_loss,self.target_preds,self.target_dists,self.distill_kl = online_net.transition_loss(target_net,self.log_distill_policy, self.obses_ph, self.actions_ph,
+        losses,self.distill_loss = online_net.transition_loss(target_net,self.log_distill_policy, self.obses_ph, self.actions_ph,
                                             self.rews_ph, self.new_obses_ph, self.terminals_ph,
                                             self.discounts_ph)
         self.losses = self.weights_ph * losses
-        self.loss = tf.reduce_mean(self.losses)
+        self.loss = safety_check(tf.reduce_mean(self.losses))
 
         self.distill_variables = ray.experimental.TensorFlowVariables(self.log_distill_policy, self.online_net.session)
 
@@ -52,11 +59,13 @@ class DQN:
             assigns.append(tf.assign(dst, src))
         self.update_target = tf.group(*assigns)
 
-        self.optim = tf.train.AdamOptimizer(learning_rate=1e-4, epsilon=1.5e-4).minimize(self.loss)
+        optimizer = tf.train.AdamOptimizer(learning_rate=1e-4, epsilon=1.5e-4)
+        grads = safety_check(optimizer.compute_gradients(self.loss))
+        self.optim = optimizer.apply_gradients(grads)
 
         with tf.variable_scope("adam", reuse=tf.AUTO_REUSE):
             distill_optim = tf.train.AdamOptimizer(learning_rate=1e-4, epsilon=1.5e-4)
-            self.distill_grads = distill_optim.compute_gradients(self.distill_loss)
+            self.distill_grads = safety_check(distill_optim.compute_gradients(self.distill_loss))
             self.train_distill_policy = distill_optim.apply_gradients(self.distill_grads)
 
     def feed_dict(self, transitions):

@@ -12,8 +12,17 @@ import tensorflow as tf
 from .base import TFQNetwork
 from .dqn_scalar import noisy_net_dense
 from .util import nature_cnn, simple_mlp, take_vector_elems,larger_cnn
+import pdb
 
 # pylint: disable=R0913
+
+def safety_check(tensor):
+    try:
+        rt = tf.check_numerics(tensor,"tensor nan")
+    except:
+        pdb.set_trace()
+    return rt
+
 
 def distill_network(session,
                    num_actions,
@@ -118,10 +127,11 @@ class DistQNetwork(TFQNetwork):
         with tf.variable_scope(name):
             self.step_obs_ph = tf.placeholder(self.input_dtype,
                                               shape=(None,) + obs_vectorizer.out_shape)
-            self.step_base_out = self.base(self.step_obs_ph)
-            log_probs = self.value_func(self.step_base_out)
-            values = self.dist.mean(log_probs)
-            policy = self.policy_func(values)
+            self.step_base_out = safety_check(self.base(self.step_obs_ph))
+
+            log_probs = safety_check(self.value_func(self.step_base_out))
+            values = safety_check(self.dist.mean(log_probs))
+            policy = safety_check(self.policy_func(values))
             self.step_outs = (policy , values, log_probs)
         self.variables = [v for v in tf.trainable_variables() if v not in old_vars]
 
@@ -155,8 +165,8 @@ class DistQNetwork(TFQNetwork):
 
     def transition_loss(self, target_net, log_distill_policy, obses, actions, rews, new_obses, terminals, discounts):
         with tf.variable_scope(self.name, reuse=True):
-            values = self.dist.mean(self.value_func(self.base(new_obses)))
-        policies = self.policy_func(values)
+            values = safety_check(self.dist.mean(self.value_func(self.base(new_obses))))
+        policies = safety_check(self.policy_func(values))
 
         distill_kl = -self.cross_entropy_func(policies,tf.stop_gradient(log_distill_policy))
 
@@ -165,21 +175,21 @@ class DistQNetwork(TFQNetwork):
             target_preds = tf.where(terminals,
                                     tf.zeros_like(target_preds) - log(self.dist.num_atoms),
                                     target_preds)
-            target_values = self.dist.mean(target_preds)
-        entropy = self.entropy_func(target_values)
+            target_values = safety_check(self.dist.mean(target_preds))
+        entropy = safety_check(self.entropy_func(target_values))
         discounts = tf.where(terminals, tf.zeros_like(discounts), discounts)
 
-        tile_policies = tf.transpose(tf.reshape(tf.tile(policies,multiples=(1,self.dist.num_atoms)),(tf.shape(policies)[0],self.dist.num_atoms, self.num_actions)),perm=[0,2,1])
-        target_preds = tf.reduce_sum(tf.exp(target_preds)*tile_policies,axis=1)
-        target_dists = self.dist.add_rewards(target_preds,rews, discounts,entropy,self.tau,distill_kl,self.alpha)
+        tile_policies = safety_check(tf.transpose(tf.reshape(tf.tile(policies,multiples=(1,self.dist.num_atoms)),(tf.shape(policies)[0],self.dist.num_atoms, self.num_actions)),perm=[0,2,1]))
+        target_preds = safety_check(tf.reduce_sum(tf.exp(target_preds)*tile_policies,axis=1))
+        target_dists = safety_check(self.dist.add_rewards(target_preds,rews, discounts,entropy,self.tau,distill_kl,self.alpha))
 
-        distill_loss = tf.reduce_mean(self.cross_entropy_func(tf.stop_gradient(policies),log_distill_policy))
+        distill_loss = safety_check(tf.reduce_mean(self.cross_entropy_func(tf.stop_gradient(policies),log_distill_policy)))
 
 
         with tf.variable_scope(self.name, reuse=True):
             online_preds = self.value_func(self.base(obses))
             onlines = take_vector_elems(online_preds, actions)
-            return _kl_divergence(tf.stop_gradient(target_dists), onlines),distill_loss,target_preds,target_dists,distill_kl
+            return safety_check(_kl_divergence(tf.stop_gradient(target_dists), onlines)),distill_loss
 
 
     @property
