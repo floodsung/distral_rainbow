@@ -19,9 +19,10 @@ import pdb
 def safety_check(tensor):
     try:
         rt = tf.check_numerics(tensor,"tensor nan")
+        return rt
     except:
         pdb.set_trace()
-    return rt
+
 
 
 def distill_network(session,
