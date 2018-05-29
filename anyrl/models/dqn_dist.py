@@ -179,7 +179,7 @@ class DistQNetwork(TFQNetwork):
         with tf.variable_scope(self.name, reuse=True):
             online_preds = self.value_func(self.base(obses))
             onlines = take_vector_elems(online_preds, actions)
-            return _kl_divergence(tf.stop_gradient(target_dists), onlines),distill_loss
+            return _kl_divergence(tf.stop_gradient(target_dists), onlines),distill_loss,target_preds,target_dists,distill_kl
 
 
     @property

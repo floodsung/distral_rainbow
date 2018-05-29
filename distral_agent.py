@@ -33,10 +33,13 @@ class StreamToLogger(object):
 logging.basicConfig(
    level=logging.DEBUG,
    format='%(asctime)s:%(levelname)s:%(name)s:%(message)s',
-   filename="stderr.log",
+   filename="out.log",
    filemode='a'
 )
 
+stdout_logger = logging.getLogger('STDOUT')
+sl = StreamToLogger(stdout_logger, logging.INFO)
+sys.stdout = sl
 
 stderr_logger = logging.getLogger('STDERR')
 sl = StreamToLogger(stderr_logger, logging.ERROR)
@@ -146,11 +149,18 @@ class DistralAgent():
                         if grad[0] != None:
                             grad_names.append(grad[0])
 
-                    _,losses,distill_grads = self.sess.run((self.dqn.optim,self.dqn.losses,grad_names),
+                    _,losses,distill_grads,target_preds,target_dists,distill_kl = self.sess.run((self.dqn.optim,self.dqn.losses,grad_names,self.dqn.target_preds,self.dqn.target_dists,self.dqn.distill_kl),
                                          feed_dict=self.dqn.feed_dict(batch))
 
                     for loss in losses:
-                        assert loss > 0
+                        if loss < 0:
+                            print("target_preds:",target_preds)
+                            print("target_dists:",target_dists)
+                            print("distill kl:",distill_kl)
+                            print("losses:",losses)
+                            print("target preds sum:",np.sum(target_preds,axis=1))
+                            print("target dists sum:",np.sum(target_dists,axis=1))
+                        assert loss >= 0
                         assert not np.isnan(loss)
                     # losses = np.array(losses).clip(0)
                     self.replay_buffer.update_weights(batch, losses)
