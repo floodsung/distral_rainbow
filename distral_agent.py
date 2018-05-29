@@ -14,6 +14,34 @@ import ray
 import time
 import os
 
+import logging
+import sys
+
+class StreamToLogger(object):
+   """
+   Fake file-like stream object that redirects writes to a logger instance.
+   """
+   def __init__(self, logger, log_level=logging.INFO):
+      self.logger = logger
+      self.log_level = log_level
+      self.linebuf = ''
+
+   def write(self, buf):
+      for line in buf.rstrip().splitlines():
+         self.logger.log(self.log_level, line.rstrip())
+
+logging.basicConfig(
+   level=logging.DEBUG,
+   format='%(asctime)s:%(levelname)s:%(name)s:%(message)s',
+   filename="stderr.log",
+   filemode='a'
+)
+
+
+stderr_logger = logging.getLogger('STDERR')
+sl = StreamToLogger(stderr_logger, logging.ERROR)
+sys.stderr = sl
+
 THREAD_NUM = 8
 NUM_ITER  = 5000000
 AGENT_NUM_PER_THREAD = 6
@@ -120,6 +148,10 @@ class DistralAgent():
 
                     _,losses,distill_grads = self.sess.run((self.dqn.optim,self.dqn.losses,grad_names),
                                          feed_dict=self.dqn.feed_dict(batch))
+
+                    for loss in losses:
+                        assert loss > 0
+                        assert not np.isnan(loss)
                     # losses = np.array(losses).clip(0)
                     self.replay_buffer.update_weights(batch, losses)
 

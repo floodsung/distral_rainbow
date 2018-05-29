@@ -80,6 +80,7 @@ class BasicPlayer(Player):
         self._episode_id = -1
         self._episode_step = 0
         self._total_reward = 0.0
+        self.recent_rewards = deque()
 
     def play(self):
         return [self._gather_transition() for _ in range(self.batch_size)]
@@ -109,11 +110,14 @@ class BasicPlayer(Player):
             'total_reward': self._total_reward
         }
         if self._needs_reset:
-            print("episode:",self._episode_id,"result:",self._total_reward)
+            self.recent_rewards.append(self._total_reward)
+                if len(self.recent_rewards) > 10:
+                    self.recent_rewards.popleft()
+            print("episode:",self._episode_id,"result:",self._total_reward,"aver result:",np.mean(self.recent_rewards))
         self._cur_state = output['states']
         self._last_obs = new_obs
         self._episode_step += 1
-        
+
         return res
 
 class NStepPlayer(Player):
