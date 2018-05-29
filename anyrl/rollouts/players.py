@@ -111,8 +111,8 @@ class BasicPlayer(Player):
         }
         if self._needs_reset:
             self.recent_rewards.append(self._total_reward)
-                if len(self.recent_rewards) > 10:
-                    self.recent_rewards.popleft()
+            if len(self.recent_rewards) > 10:
+                self.recent_rewards.popleft()
             print("episode:",self._episode_id,"result:",self._total_reward,"aver result:",np.mean(self.recent_rewards))
         self._cur_state = output['states']
         self._last_obs = new_obs
