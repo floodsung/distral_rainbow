@@ -119,7 +119,7 @@ class DistQNetwork(TFQNetwork):
             self.step_obs_ph = tf.placeholder(self.input_dtype,
                                               shape=(None,) + obs_vectorizer.out_shape)
             self.step_base_out = self.base(self.step_obs_ph)
-            probs = tf.softmax(self.value_func(self.step_base_out))
+            probs = tf.nn.softmax(self.value_func(self.step_base_out))
             values = self.dist.mean(probs)
             policy = self.policy_func(values)
             self.step_outs = (policy , values, probs)
@@ -155,13 +155,13 @@ class DistQNetwork(TFQNetwork):
 
     def transition_loss(self, target_net, log_distill_policy, obses, actions, rews, new_obses, terminals, discounts):
         with tf.variable_scope(self.name, reuse=True):
-            values = self.dist.mean(tf.softmax(self.value_func(self.base(new_obses))))
+            values = self.dist.mean(tf.nn.softmax(self.value_func(self.base(new_obses))))
         policies = self.policy_func(values)
 
         distill_kl = -self.cross_entropy_func(policies,tf.stop_gradient(log_distill_policy))
 
         with tf.variable_scope(target_net.name, reuse=True):
-            target_preds = tf.softmax(target_net.value_func(target_net.base(new_obses)))
+            target_preds = tf.nn.softmax(target_net.value_func(target_net.base(new_obses)))
             target_preds = tf.where(terminals,
                                     tf.ones_like(target_preds)/self.dist.num_atoms,
                                     target_preds)
@@ -177,7 +177,7 @@ class DistQNetwork(TFQNetwork):
 
 
         with tf.variable_scope(self.name, reuse=True):
-            online_preds = tf.log_softmax(self.value_func(self.base(obses)))
+            online_preds = tf.nn.log_softmax(self.value_func(self.base(obses)))
             onlines = take_vector_elems(online_preds, actions)
             return _kl_divergence(tf.stop_gradient(target_dists), onlines),distill_loss,target_preds,target_dists,distill_kl
 
@@ -236,7 +236,7 @@ class DistQNetwork(TFQNetwork):
 
     def log_policy(self,obses):
         with tf.variable_scope(self.name, reuse=True):
-            values = self.dist.mean(tf.softmax(self.value_func(self.base(obses))))
+            values = self.dist.mean(tf.nn.softmax(self.value_func(self.base(obses))))
 
         return tf.nn.log_softmax(1/self.tau * values,axis=1)
 
