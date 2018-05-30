@@ -65,7 +65,7 @@ class DQN:
 
         with tf.variable_scope("adam", reuse=tf.AUTO_REUSE):
             distill_optim = tf.train.AdamOptimizer(learning_rate=1e-4, epsilon=1.5e-4)
-            self.distill_grads = safety_check(distill_optim.compute_gradients(self.distill_loss))
+            self.distill_grads = distill_optim.compute_gradients(self.distill_loss)
             self.train_distill_policy = distill_optim.apply_gradients(self.distill_grads)
 
     def feed_dict(self, transitions):
