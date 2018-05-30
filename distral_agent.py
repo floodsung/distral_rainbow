@@ -26,6 +26,7 @@ AGENT_NUM_PER_THREAD = 6
 class MultiAgent():
     """docstring for MultiAgent"""
     def __init__(self,thread_index,num_agent=AGENT_NUM_PER_THREAD):
+        np.random.seed(0)
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(map(str, ray.get_gpu_ids()))
         config = tf.ConfigProto()
         config.gpu_options.allow_growth = True
@@ -55,6 +56,7 @@ class MultiAgent():
 class SonicEnv():
 
     def __init__(self,env_index):
+        np.random.seed(0)
         train_file = csv.reader(open('./sonic-train.csv','r'),delimiter=',')
         self.games = []
         for i,row in enumerate(train_file):
