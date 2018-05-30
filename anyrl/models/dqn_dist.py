@@ -137,10 +137,10 @@ class DistQNetwork(TFQNetwork):
         feed = self.step_feed_dict(observations, states)
         policy,values, dists = self.session.run(self.step_outs, feed_dict=feed)
         isnan = any(np.isnan(p) for p in policy[0])
-        if isnan:
+        if not isnan:
+            actions = np.random.choice(self.num_actions,p=policy[0])
+        else:
             pdb.set_trace()
-
-        actions = np.random.choice(self.num_actions,p=policy[0])
 
         return {
             'actions': [actions],
