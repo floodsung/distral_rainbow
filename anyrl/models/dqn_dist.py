@@ -119,10 +119,10 @@ class DistQNetwork(TFQNetwork):
             self.step_obs_ph = tf.placeholder(self.input_dtype,
                                               shape=(None,) + obs_vectorizer.out_shape)
             self.step_base_out = self.base(self.step_obs_ph)
-            log_probs = self.value_func(self.step_base_out)
-            values = self.dist.mean(log_probs)
+            probs = tf.softmax(self.value_func(self.step_base_out))
+            values = self.dist.mean(probs)
             policy = self.policy_func(values)
-            self.step_outs = (policy , values, log_probs)
+            self.step_outs = (policy , values, probs)
         self.variables = [v for v in tf.trainable_variables() if v not in old_vars]
 
     @property
@@ -155,29 +155,29 @@ class DistQNetwork(TFQNetwork):
 
     def transition_loss(self, target_net, log_distill_policy, obses, actions, rews, new_obses, terminals, discounts):
         with tf.variable_scope(self.name, reuse=True):
-            values = self.dist.mean(self.value_func(self.base(new_obses)))
+            values = self.dist.mean(tf.softmax(self.value_func(self.base(new_obses))))
         policies = self.policy_func(values)
 
         distill_kl = -self.cross_entropy_func(policies,tf.stop_gradient(log_distill_policy))
 
         with tf.variable_scope(target_net.name, reuse=True):
-            target_preds = target_net.value_func(target_net.base(new_obses))
+            target_preds = tf.softmax(target_net.value_func(target_net.base(new_obses)))
             target_preds = tf.where(terminals,
-                                    tf.zeros_like(target_preds) - log(self.dist.num_atoms),
+                                    tf.ones_like(target_preds)/self.dist.num_atoms,
                                     target_preds)
             target_values = self.dist.mean(target_preds)
         entropy = self.entropy_func(target_values)
         discounts = tf.where(terminals, tf.zeros_like(discounts), discounts)
 
         tile_policies = tf.transpose(tf.reshape(tf.tile(policies,multiples=(1,self.dist.num_atoms)),(tf.shape(policies)[0],self.dist.num_atoms, self.num_actions)),perm=[0,2,1])
-        target_preds = tf.reduce_sum(tf.exp(target_preds)*tile_policies,axis=1)
+        target_preds = tf.reduce_sum(target_preds*tile_policies,axis=1)
         target_dists = self.dist.add_rewards(target_preds,rews, discounts,entropy,self.tau,distill_kl,self.alpha)
 
         distill_loss = tf.reduce_mean(self.cross_entropy_func(tf.stop_gradient(policies),log_distill_policy))
 
 
         with tf.variable_scope(self.name, reuse=True):
-            online_preds = self.value_func(self.base(obses))
+            online_preds = tf.log_softmax(self.value_func(self.base(obses)))
             onlines = take_vector_elems(online_preds, actions)
             return _kl_divergence(tf.stop_gradient(target_dists), onlines),distill_loss,target_preds,target_dists,distill_kl
 
@@ -213,10 +213,11 @@ class DistQNetwork(TFQNetwork):
         logits = self.dense(feature_batch, self.num_actions * self.dist.num_atoms)
         actions = tf.reshape(logits, (tf.shape(logits)[0], self.num_actions, self.dist.num_atoms))
         if not self.dueling:
-            return tf.nn.log_softmax(actions)
+            return actions
         values = tf.expand_dims(self.dense(feature_batch, self.dist.num_atoms), axis=1)
         actions -= tf.reduce_mean(actions, axis=1, keepdims=True)
-        return tf.nn.log_softmax(values + actions)
+        return values + actions
+
 
     def policy_func(self,values_batch):
         """
@@ -235,7 +236,7 @@ class DistQNetwork(TFQNetwork):
 
     def log_policy(self,obses):
         with tf.variable_scope(self.name, reuse=True):
-            values = self.dist.mean(self.value_func(self.base(obses)))
+            values = self.dist.mean(tf.softmax(self.value_func(self.base(obses))))
 
         return tf.nn.log_softmax(1/self.tau * values,axis=1)
 
@@ -367,9 +368,8 @@ class ActionDist:
         """Get the reward values for each atom."""
         return [self.min_val + i * self._delta for i in range(0, self.num_atoms)]
 
-    def mean(self, log_probs):
+    def mean(self, probs):
         """Get the mean rewards for the distributions."""
-        probs = tf.exp(log_probs)
         return tf.reduce_sum(probs * tf.constant(self.atom_values(), dtype=probs.dtype), axis=-1)
 
     def add_rewards(self, probs, rewards, discounts,entropy, tau, distill_kl,alpha):
