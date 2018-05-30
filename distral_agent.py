@@ -123,7 +123,7 @@ class DistralAgent():
                                          feed_dict=self.dqn.feed_dict(batch))
 
                     has_nan_losses = any(np.isnan(loss) for loss in losses)
-                    has_negative_losses = any(loss < 0 for loss in losses)
+                    has_negative_losses = any(loss < -0.1 for loss in losses)
 
                     if has_nan_losses or has_negative_losses:
                         pdb.set_trace()

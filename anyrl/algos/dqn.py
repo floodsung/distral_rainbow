@@ -8,8 +8,16 @@ import tensorflow as tf
 import os
 import numpy as np
 import ray
+import pdb
 
 # pylint: disable=R0902,R0903
+
+def safety_check(tensor):
+    try:
+        rt = tf.check_numerics(tensor,"gradients nan")
+    except:
+        pdb.set_trace()
+    return rt
 
 class DQN:
     """
@@ -52,7 +60,11 @@ class DQN:
             assigns.append(tf.assign(dst, src))
         self.update_target = tf.group(*assigns)
 
-        self.optim = tf.train.AdamOptimizer(learning_rate=1e-4, epsilon=1.5e-4).minimize(self.loss)
+        optimizer = tf.train.AdamOptimizer(learning_rate=1e-4, epsilon=1.5e-4)
+        grads = safety_check(optimizer.compute_gradients(self.loss))
+
+        self.optim = optimizer.apply_gradients(grads)
+
 
         with tf.variable_scope("adam", reuse=tf.AUTO_REUSE):
             distill_optim = tf.train.AdamOptimizer(learning_rate=1e-4, epsilon=1.5e-4)
