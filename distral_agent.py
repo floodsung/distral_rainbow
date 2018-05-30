@@ -152,8 +152,16 @@ class DistralAgent():
                         if grad[0] != None:
                             grad_names.append(grad[0])
 
-                    _,losses,distill_grads = self.sess.run((self.dqn.optim,self.dqn.losses,grad_names,self.dqn.target_preds,self.dqn.target_dists,self.dqn.distill_kl),
+                    _,losses,distill_grads,target_preds,target_dists = self.sess.run((self.dqn.optim,self.dqn.losses,grad_names,self.dqn.target_preds,self.dqn.target_dists),
                                          feed_dict=self.dqn.feed_dict(batch))
+
+                    has_negative = any(pred < 0 for pred in target_preds.reshape(-1,1))
+                    has_larger_one = any(pred >1 for pred in target_preds.reshape(-1,1))
+                    has_negative_dist = any(dist < 0 for dist in target_dists.reshape(-1,1))
+                    has_larger_dist = any(dist > 1 for dist in target_dists.reshape(-1,1))
+
+                    if has_negative or has_larger_one or has_negative_dist or has_larger_dist:
+                        pdf.set_trace()
 
                     self.replay_buffer.update_weights(batch, losses)
 
