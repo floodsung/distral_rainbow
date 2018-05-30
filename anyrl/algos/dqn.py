@@ -12,12 +12,7 @@ import pdb
 
 # pylint: disable=R0902,R0903
 
-def safety_check(tensor):
-    try:
-        rt = tf.check_numerics(tensor,"gradients nan")
-    except:
-        pdb.set_trace()
-    return rt
+
 
 class DQN:
     """
@@ -61,7 +56,7 @@ class DQN:
         self.update_target = tf.group(*assigns)
 
         optimizer = tf.train.AdamOptimizer(learning_rate=1e-4, epsilon=1.5e-4)
-        grads = safety_check(optimizer.compute_gradients(self.loss))
+        grads = self.safety_check(optimizer.compute_gradients(self.loss))
 
         self.optim = optimizer.apply_gradients(grads)
 
@@ -70,6 +65,13 @@ class DQN:
             distill_optim = tf.train.AdamOptimizer(learning_rate=1e-4, epsilon=1.5e-4)
             self.distill_grads = distill_optim.compute_gradients(self.distill_loss)
             self.train_distill_policy = distill_optim.apply_gradients(self.distill_grads)
+
+    def safety_check(self,tensor):
+        try:
+            rt = tf.check_numerics(tensor,"gradients nan")
+        except:
+            pdb.set_trace()
+        return rt
 
     def feed_dict(self, transitions):
         """
