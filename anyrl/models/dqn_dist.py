@@ -12,6 +12,7 @@ import tensorflow as tf
 from .base import TFQNetwork
 from .dqn_scalar import noisy_net_dense
 from .util import nature_cnn, simple_mlp, take_vector_elems,larger_cnn
+import pdb
 
 # pylint: disable=R0913
 
@@ -135,16 +136,12 @@ class DistQNetwork(TFQNetwork):
     def step(self, observations, states):
         feed = self.step_feed_dict(observations, states)
         policy,values, dists = self.session.run(self.step_outs, feed_dict=feed)
-        isnan = False
-        for p in policy[0]:
-            if np.isnan(p):
-                print("values:",values)
-                print("dists:",dists)
-                isnan = True
-        if not isnan:
-            actions = np.random.choice(self.num_actions,p=policy[0])
-        else:
-            actions = 0
+        isnan = any(np.isnan(p) for p in policy[0])
+        if isnan:
+            pdb.set_trace()
+
+        actions = np.random.choice(self.num_actions,p=policy[0])
+
         return {
             'actions': [actions],
             'states': None,
@@ -170,8 +167,8 @@ class DistQNetwork(TFQNetwork):
         discounts = tf.where(terminals, tf.zeros_like(discounts), discounts)
 
         tile_policies = tf.transpose(tf.reshape(tf.tile(policies,multiples=(1,self.dist.num_atoms)),(tf.shape(policies)[0],self.dist.num_atoms, self.num_actions)),perm=[0,2,1])
-        target_preds = tf.reduce_sum(target_preds*tile_policies,axis=1)
-        target_dists = self.dist.add_rewards(target_preds,rews, discounts,entropy,self.tau,distill_kl,self.alpha)
+        target_preds_mean = tf.reduce_sum(target_preds*tile_policies,axis=1)
+        target_dists = self.dist.add_rewards(target_preds_mean,rews, discounts,entropy,self.tau,distill_kl,self.alpha)
 
         distill_loss = tf.reduce_mean(self.cross_entropy_func(tf.stop_gradient(policies),log_distill_policy))
 
@@ -179,7 +176,7 @@ class DistQNetwork(TFQNetwork):
         with tf.variable_scope(self.name, reuse=True):
             online_preds = tf.nn.log_softmax(self.value_func(self.base(obses)))
             onlines = take_vector_elems(online_preds, actions)
-            return _kl_divergence(tf.stop_gradient(target_dists), onlines),distill_loss,target_preds,target_dists,distill_kl
+            return _kl_divergence(tf.stop_gradient(target_dists), onlines),distill_loss,target_preds_mean,target_dists,target_preds,tile_policies
 
 
     @property
