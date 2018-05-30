@@ -114,10 +114,11 @@ class DistralAgent():
                     self.next_train_step = self.steps_taken + self.train_interval
                     batch = self.replay_buffer.sample(self.batch_size)
 
-                    grad_names = []
-                    for grad in self.dqn.distill_grads:
-                        if grad[0] != None:
-                            grad_names.append(grad[0])
+                    # grad_names = []
+                    # for grad in self.dqn.distill_grads:
+                    #     if grad[0] != None:
+                    #         grad_names.append(grad[0])
+                    grad_names = [grad[0] for grad in self.dqn.distill_grads]
 
                     _,losses,distill_grads,target_preds_mean,target_dists,target_preds,tile_polices = self.sess.run((self.dqn.optim,self.dqn.losses,grad_names,self.dqn.target_preds_mean,self.dqn.target_dists,self.dqn.target_preds,self.dqn.tile_policies),
                                          feed_dict=self.dqn.feed_dict(batch))
