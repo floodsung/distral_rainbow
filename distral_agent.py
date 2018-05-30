@@ -173,12 +173,12 @@ def main():
 
     distill_network_variables = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="distill")
     saver = tf.train.Saver(distill_network_variables)
-    checkpoint = tf.train.get_checkpoint_state("./models")
-    if checkpoint and checkpoint.model_checkpoint_path:
-        saver.restore(sess, checkpoint.model_checkpoint_path)
-        print ("Successfully loaded:", checkpoint.model_checkpoint_path)
-    else:
-        print ("Could not find old network weights")
+    # checkpoint = tf.train.get_checkpoint_state("./models")
+    # if checkpoint and checkpoint.model_checkpoint_path:
+    #     saver.restore(sess, checkpoint.model_checkpoint_path)
+    #     print ("Successfully loaded:", checkpoint.model_checkpoint_path)
+    # else:
+    #     print ("Could not find old network weights")
 
     grad_names = []
     for grad in local_dqn.distill_grads:
