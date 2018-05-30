@@ -122,7 +122,7 @@ class DistralAgent():
                         if grad[0] != None:
                             grad_names.append(grad[0])
 
-                    _,losses,distill_grads,target_preds_mean,target_dists,target_preds,tile_polices = self.sess.run((self.dqn.optim,self.dqn.losses,grad_names,self.dqn.target_preds_mean,self.dqn.target_dists,self.dqn.target_preds,self.dqn.tile_polices),
+                    _,losses,distill_grads,target_preds_mean,target_dists,target_preds,tile_polices = self.sess.run((self.dqn.optim,self.dqn.losses,grad_names,self.dqn.target_preds_mean,self.dqn.target_dists,self.dqn.target_preds,self.dqn.tile_policies),
                                          feed_dict=self.dqn.feed_dict(batch))
 
                     has_nan_losses = any(np.isnan(loss) for loss in losses)
