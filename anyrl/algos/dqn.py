@@ -36,11 +36,12 @@ class DQN:
         self.terminals_ph = tf.placeholder(tf.bool, shape=(None,))
         self.discounts_ph = tf.placeholder(tf.float32, shape=(None,))
         self.weights_ph = tf.placeholder(tf.float32, shape=(None,))
+        self.alpha = tf.placeholder(tf.float32,shape=())
 
         self.log_distill_policy = self.distill_net.log_policy(self.new_obses_ph)
         losses,self.distill_loss = online_net.transition_loss(target_net,self.log_distill_policy, self.obses_ph, self.actions_ph,
                                             self.rews_ph, self.new_obses_ph, self.terminals_ph,
-                                            self.discounts_ph)
+                                            self.discounts_ph,self.alpha)
         self.losses = self.weights_ph * losses
         self.loss = tf.reduce_mean(self.losses)
 
@@ -54,6 +55,8 @@ class DQN:
         self.distill_grads = distill_optim.compute_gradients(self.distill_loss)
         self.train_distill_policy = distill_optim.apply_gradients(self.distill_grads)
 
+        self.steps_taken = 0
+
     def feed_dict(self, transitions):
         """
         Generate a feed_dict that feeds the batch of
@@ -66,6 +69,10 @@ class DQN:
         Returns:
           A dict which can be fed to tf.Session.run().
         """
+        if self.steps_taken < 500000.0:
+            alpha = 0.9 * (1 -  self.steps_taken/500000.0)
+        else:
+            alpha = 0.0
         obs_vect = self.online_net.obs_vectorizer
         res = {
             self.obses_ph: obs_vect.to_vecs([t['obs'] for t in transitions]),
@@ -73,7 +80,8 @@ class DQN:
             self.rews_ph: [self._discounted_rewards(t['rewards']) for t in transitions],
             self.terminals_ph: [t['new_obs'] is None for t in transitions],
             self.discounts_ph: [(self.discount ** len(t['rewards'])) for t in transitions],
-            self.weights_ph: [t['weight'] for t in transitions]
+            self.weights_ph: [t['weight'] for t in transitions],
+            self.alpha:alpha
         }
         new_obses = []
         for trans in transitions:
@@ -89,3 +97,42 @@ class DQN:
         for i, rew in enumerate(rews):
             res += rew * (self.discount ** i)
         return res
+
+    def train(self,
+              sess,
+              num_steps,
+              player,
+              replay_buffer,
+              train_interval=1,
+              target_interval=8192,
+              batch_size=32,
+              min_buffer_size=20000,
+              handle_ep=lambda steps, rew: None):
+
+        sess.run(self.update_target)
+
+        next_target_update = target_interval
+        next_train_step = train_interval
+
+        while self.steps_taken < num_steps:
+
+            transitions = player.play()
+            for trans in transitions:
+                if trans['is_last']:
+                    handle_ep(trans['episode_step'] + 1, trans['total_reward'])
+                replay_buffer.add_sample(trans)
+                self.steps_taken += 1
+                if replay_buffer.size >= min_buffer_size and self.steps_taken >= next_train_step:
+                    next_train_step = self.steps_taken + train_interval
+                    batch = replay_buffer.sample(batch_size)
+
+                    _,losses = sess.run((self.optim,self.losses),
+                                         feed_dict=self.feed_dict(batch))
+                    isnan = any(np.isnan(loss) for loss in losses)
+                    if isnan:
+                        continue
+                    replay_buffer.update_weights(batch, losses)
+
+                if self.steps_taken >= next_target_update:
+                    next_target_update = self.steps_taken + target_interval
+                    sess.run(self.update_target)
