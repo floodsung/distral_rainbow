@@ -133,7 +133,10 @@ class DistralAgent():
                     has_larger_dist = any(dist > 1 for dist in target_dists.reshape(-1,1))
                     has_nan_dist = any(np.isnan(dist) for dist in target_dists.reshape(-1,1))
 
-                    if has_negative or has_larger_one or has_negative_dist or has_larger_dist or has_nan_pred or has_nan_dist:
+                    has_nan_losses = any(np.isnan(loss) for loss in losses)
+                    has_negative_losses = any(loss < 0 for loss in losses)
+
+                    if has_nan_losses or has_negative_losses:
                         pdb.set_trace()
                     # losses = np.array(losses).clip(0)
                     self.replay_buffer.update_weights(batch, losses)
