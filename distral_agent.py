@@ -13,37 +13,8 @@ import csv
 import ray
 import time
 import os
+import pdb
 
-import logging
-import sys
-
-class StreamToLogger(object):
-   """
-   Fake file-like stream object that redirects writes to a logger instance.
-   """
-   def __init__(self, logger, log_level=logging.INFO):
-      self.logger = logger
-      self.log_level = log_level
-      self.linebuf = ''
-
-   def write(self, buf):
-      for line in buf.rstrip().splitlines():
-         self.logger.log(self.log_level, line.rstrip())
-
-logging.basicConfig(
-   level=logging.DEBUG,
-   format='%(asctime)s:%(levelname)s:%(name)s:%(message)s',
-   filename="out.log",
-   filemode='a'
-)
-
-stdout_logger = logging.getLogger('STDOUT')
-sl = StreamToLogger(stdout_logger, logging.INFO)
-sys.stdout = sl
-
-stderr_logger = logging.getLogger('STDERR')
-sl = StreamToLogger(stderr_logger, logging.ERROR)
-sys.stderr = sl
 
 THREAD_NUM = 8
 NUM_ITER  = 5000000
@@ -149,19 +120,16 @@ class DistralAgent():
                         if grad[0] != None:
                             grad_names.append(grad[0])
 
-                    _,losses,distill_grads,target_preds,target_dists,distill_kl = self.sess.run((self.dqn.optim,self.dqn.losses,grad_names,self.dqn.target_preds,self.dqn.target_dists,self.dqn.distill_kl),
+                    _,losses,distill_grads,target_preds,target_dists = self.sess.run((self.dqn.optim,self.dqn.losses,grad_names,self.dqn.target_preds,self.dqn.target_dists),
                                          feed_dict=self.dqn.feed_dict(batch))
 
-                    for loss in losses:
-                        if loss < 0:
-                            print("target_preds:",target_preds)
-                            print("target_dists:",target_dists)
-                            print("distill kl:",distill_kl)
-                            print("losses:",losses)
-                            print("target preds sum:",np.sum(target_preds,axis=1))
-                            print("target dists sum:",np.sum(target_dists,axis=1))
-                        assert loss >= 0
-                        assert not np.isnan(loss)
+                    has_negative = any(pred < 0 for pred in target_preds.reshape(-1,1))
+                    has_larger_one = any(pred >1 for pred in target_preds.reshape(-1,1))
+                    has_negative_dist = any(dist < 0 for dist in target_dists.reshape(-1,1))
+                    has_larger_dist = any(dist > 1 for dist in target_dists.reshape(-1,1))
+
+                    if has_negative or has_larger_one or has_negative_dist or has_larger_dist:
+                        pdf.set_trace()
                     # losses = np.array(losses).clip(0)
                     self.replay_buffer.update_weights(batch, losses)
 
