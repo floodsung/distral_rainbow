@@ -191,8 +191,8 @@ def main():
         if iteration % 1000 == 0:
             print("iter:",iteration)
 
-        weights_id = ray.put(weights)
-        gradients_ids = [agent.train.remote(weights_id) for agent in agents]
+
+        gradients_ids = [agent.train.remote(weights) for agent in agents]
         gradients_raw = ray.get(gradients_ids)
         gradients_list = []
         for gradients in gradients_raw:
