@@ -44,7 +44,7 @@ def distill_network(session,
     """
     maker = lambda name: LargerDistQNetwork(session, num_actions, obs_vectorizer, name,
                                             num_atoms, min_val, max_val,tau=tau,alpha=alpha,dueling=True,
-                                            dense=partial(noisy_net_dense, sigma0=sigma0))
+                                            dense=tf.layers.dense)
 
     return maker('distill')
 
@@ -77,7 +77,7 @@ def rainbow_models(session,
     """
     maker = lambda name: NatureDistQNetwork(session, num_actions, obs_vectorizer, name,
                                             num_atoms, min_val, max_val,tau=tau,alpha=alpha,dueling=True,
-                                            dense=partial(noisy_net_dense, sigma0=sigma0))
+                                            dense=tf.layers.dense)
     # distill_maker = lambda name: NatureDistQNetwork(session, num_actions, obs_vectorizer, name,
     #                                         num_atoms, min_val, max_val,tau=tau,alpha=alpha,dueling=True,
     #                                         dense=tf.layers.dense)
