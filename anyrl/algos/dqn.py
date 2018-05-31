@@ -69,10 +69,10 @@ class DQN:
         Returns:
           A dict which can be fed to tf.Session.run().
         """
-        if self.steps_taken < 500000.0:
-            alpha = 0.9 * (1 -  self.steps_taken/500000.0)
+        if self.steps_taken < 300000.0:
+            alpha = 0.5
         else:
-            alpha = 0.0
+            alpha = 0.01
         obs_vect = self.online_net.obs_vectorizer
         res = {
             self.obses_ph: obs_vect.to_vecs([t['obs'] for t in transitions]),
