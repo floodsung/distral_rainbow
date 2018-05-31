@@ -161,7 +161,8 @@ class DistQNetwork(TFQNetwork):
         distill_kl = -self.cross_entropy_func(policies,tf.stop_gradient(log_distill_policy))
 
         with tf.variable_scope(target_net.name, reuse=True):
-            target_preds = tf.nn.softmax(target_net.value_func(target_net.base(new_obses)))
+            target_features,_ = target_net.base(new_obses)
+            target_preds = tf.nn.softmax(target_net.value_func(target_features))
             target_preds = tf.where(terminals,
                                     tf.ones_like(target_preds)/self.dist.num_atoms,
                                     target_preds)
