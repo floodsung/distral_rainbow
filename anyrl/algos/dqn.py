@@ -55,23 +55,13 @@ class DQN:
             assigns.append(tf.assign(dst, src))
         self.update_target = tf.group(*assigns)
 
-        optimizer = tf.train.AdamOptimizer(learning_rate=1e-4, epsilon=1.5e-4)
-        grads = optimizer.compute_gradients(self.loss)
+        self.optim = tf.train.AdamOptimizer(learning_rate=1e-4, epsilon=1.5e-4).minimize(self.loss)
 
-        self.optim = optimizer.apply_gradients(grads)
-
-        distill_network_variables = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="distill")
         with tf.variable_scope("adam", reuse=tf.AUTO_REUSE):
-            distill_optim = tf.train.AdamOptimizer(learning_rate=1e-4, epsilon=1.5e-4)
-            self.distill_grads = distill_optim.compute_gradients(self.distill_loss,var_list=distill_network_variables)
+            distill_optim = tf.train.AdamOptimizer(learning_rate=1e-3, epsilon=1.5e-4)
+            self.distill_grads = distill_optim.compute_gradients(self.distill_loss)
             self.train_distill_policy = distill_optim.apply_gradients(self.distill_grads)
 
-    # def safety_check(self,tensor):
-    #     try:
-    #         rt = tf.check_numerics(tensor,"gradients nan")
-    #     except:
-    #         pdb.set_trace()
-    #     return rt
 
     def feed_dict(self, transitions):
         """
