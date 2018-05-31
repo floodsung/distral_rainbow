@@ -239,7 +239,7 @@ class DistQNetwork(TFQNetwork):
 
     def log_policy(self,obses):
         with tf.variable_scope(self.name, reuse=True):
-            features,_,_,_ = self.base(obses)
+            features,_ = self.base(obses)
             values = self.dist.mean(tf.nn.softmax(self.value_func(features)[0]))
 
         return tf.nn.log_softmax(1/self.tau * values,axis=1)
