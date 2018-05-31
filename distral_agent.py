@@ -96,7 +96,7 @@ class DistralAgent():
         self.train_interval=1
         self.target_interval=8192
         self.batch_size=32
-        self.min_buffer_size=2000
+        self.min_buffer_size=20000
         self.handle_ep=lambda steps, rew: None
         self.next_target_update = self.target_interval
         self.next_train_step = self.train_interval
