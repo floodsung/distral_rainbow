@@ -251,7 +251,7 @@ def noisy_net_dense(inputs,
         bias_noise = tf.random_normal((units,), dtype=bias_stddev.dtype.base_dtype)
         weight_noise = _factorized_noise(num_inputs, units)
         return activation(tf.matmul(inputs, weight_mean + weight_stddev * weight_noise) +
-                          bias_mean + bias_stddev * bias_noise)
+                          bias_mean + bias_stddev * bias_noise),weight_noise,bias_noise
 
 def _factorized_noise(inputs, outputs):
     noise1 = _signed_sqrt(tf.random_normal((inputs, 1)))

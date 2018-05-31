@@ -120,11 +120,11 @@ class DistQNetwork(TFQNetwork):
             self.step_obs_ph = tf.placeholder(self.input_dtype,
                                               shape=(None,) + obs_vectorizer.out_shape)
             self.step_base_out,flat_in = self.base(self.step_obs_ph)
-            probs_raw = self.value_func(self.step_base_out)
+            probs_raw,noise_weight,noise_bias = self.value_func(self.step_base_out)
             probs = tf.nn.softmax(probs_raw)
             values = self.dist.mean(probs)
             policy = self.policy_func(values)
-            self.step_outs = (policy , values, probs_raw,flat_in)
+            self.step_outs = (policy , values, probs_raw,flat_in, noise_weight,noise_bias)
         self.variables = [v for v in tf.trainable_variables() if v not in old_vars]
 
     @property
@@ -136,7 +136,7 @@ class DistQNetwork(TFQNetwork):
 
     def step(self, observations, states):
         feed = self.step_feed_dict(observations, states)
-        policy,values, dists,flat_in = self.session.run(self.step_outs, feed_dict=feed)
+        policy,values, dists,flat_in,noise_weight,noise_bias = self.session.run(self.step_outs, feed_dict=feed)
         isnan = any(np.isnan(p) for p in policy[0])
         if not isnan:
             actions = np.random.choice(self.num_actions,p=policy[0])
@@ -154,15 +154,15 @@ class DistQNetwork(TFQNetwork):
 
     def transition_loss(self, target_net, log_distill_policy, obses, actions, rews, new_obses, terminals, discounts):
         with tf.variable_scope(self.name, reuse=True):
-            features,_ = self.base(new_obses)
-            values = self.dist.mean(tf.nn.softmax(self.value_func(features)))
+            features,_,_,_ = self.base(new_obses)
+            values = self.dist.mean(tf.nn.softmax(self.value_func(features)[0]))
         policies = self.policy_func(values)
 
         distill_kl = -self.cross_entropy_func(policies,tf.stop_gradient(log_distill_policy))
 
         with tf.variable_scope(target_net.name, reuse=True):
-            target_features,_ = target_net.base(new_obses)
-            target_preds = tf.nn.softmax(target_net.value_func(target_features))
+            target_features,_,_,_ = target_net.base(new_obses)
+            target_preds = tf.nn.softmax(target_net.value_func(target_features)[0])
             target_preds = tf.where(terminals,
                                     tf.ones_like(target_preds)/self.dist.num_atoms,
                                     target_preds)
@@ -178,8 +178,8 @@ class DistQNetwork(TFQNetwork):
 
 
         with tf.variable_scope(self.name, reuse=True):
-            features,_ = self.base(obses)
-            online_preds = tf.nn.log_softmax(self.value_func(features))
+            features,_,_,_ = self.base(obses)
+            online_preds = tf.nn.log_softmax(self.value_func(features)[0])
             onlines = take_vector_elems(online_preds, actions)
             return _kl_divergence(tf.stop_gradient(target_dists), onlines),distill_loss,target_preds_mean,target_dists,target_preds,tile_policies
 
@@ -212,13 +212,14 @@ class DistQNetwork(TFQNetwork):
 
         All probabilities are computed in the log domain.
         """
-        logits = self.dense(feature_batch, self.num_actions * self.dist.num_atoms)
+        logits,noise_weight,noise_bias = self.dense(feature_batch, self.num_actions * self.dist.num_atoms)
         actions = tf.reshape(logits, (tf.shape(logits)[0], self.num_actions, self.dist.num_atoms))
         if not self.dueling:
             return actions
-        values = tf.expand_dims(self.dense(feature_batch, self.dist.num_atoms), axis=1)
+        value_noise,value_noise_weight,value_noise_bias = self.dense(feature_batch, self.dist.num_atoms)
+        values = tf.expand_dims(value_noise, axis=1)
         actions -= tf.reduce_mean(actions, axis=1, keepdims=True)
-        return values + actions
+        return values + actions,noise_weight,noise_bias
 
 
     def policy_func(self,values_batch):
@@ -238,8 +239,8 @@ class DistQNetwork(TFQNetwork):
 
     def log_policy(self,obses):
         with tf.variable_scope(self.name, reuse=True):
-            features,_ = self.base(obses)
-            values = self.dist.mean(tf.nn.softmax(self.value_func(features)))
+            features,_,_,_ = self.base(obses)
+            values = self.dist.mean(tf.nn.softmax(self.value_func(features)[0]))
 
         return tf.nn.log_softmax(1/self.tau * values,axis=1)
 

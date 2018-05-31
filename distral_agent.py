@@ -17,7 +17,7 @@ import pdb
 
 THREAD_NUM = 8
 NUM_ITER  = 5000000
-AGENT_NUM_PER_THREAD = 4
+AGENT_NUM_PER_THREAD = 2
 
 @ray.remote(num_cpus=AGENT_NUM_PER_THREAD,num_gpus=1)
 class MultiAgent():
@@ -96,7 +96,7 @@ class DistralAgent():
         self.train_interval=1
         self.target_interval=8192
         self.batch_size=32
-        self.min_buffer_size=20000
+        self.min_buffer_size=2000
         self.handle_ep=lambda steps, rew: None
         self.next_target_update = self.target_interval
         self.next_train_step = self.train_interval
