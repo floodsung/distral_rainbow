@@ -154,7 +154,7 @@ class DistQNetwork(TFQNetwork):
 
     def transition_loss(self, target_net, log_distill_policy, obses, actions, rews, new_obses, terminals, discounts):
         with tf.variable_scope(self.name, reuse=True):
-            features,_,_,_ = self.base(new_obses)
+            features,_ = self.base(new_obses)
             values = self.dist.mean(tf.nn.softmax(self.value_func(features)[0]))
         policies = self.policy_func(values)
 
