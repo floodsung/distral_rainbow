@@ -101,8 +101,7 @@ def larger_cnn(obs_batch, dense=tf.layers.dense):
         cnn_4 = tf.layers.conv2d(cnn_3, 64, 2, 1, **conv_kwargs)
     flat_size = product([x.value for x in cnn_4.get_shape()[1:]])
     flat_in = tf.reshape(cnn_4, (tf.shape(cnn_4)[0], int(flat_size)))
-    output,noisy_weight,noisy_bias = dense(flat_in, 512, **conv_kwargs)
-    return output
+    return dense(flat_in, 512, **conv_kwargs)
 
 def product(vals):
     """
