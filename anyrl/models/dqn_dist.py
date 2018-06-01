@@ -115,7 +115,7 @@ class DistQNetwork(TFQNetwork):
         with tf.variable_scope(self.name, reuse=True):
             values = self.dist.mean(tf.nn.softmax(self.value_func(self.base(new_obses))))
             max_actions = tf.argmax(values, axis=1, output_type=tf.int32)
-
+        policies = self.policy_func(values)
         with tf.variable_scope(target_net.name, reuse=True):
             target_preds = tf.nn.softmax(target_net.value_func(target_net.base(new_obses)))
             target_preds = tf.where(terminals,
