@@ -22,7 +22,6 @@ def main():
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True
     sess = tf.Session(config=config)
-
     dqn = DQN(*rainbow_models(sess,
                               env.action_space.n,
                               gym_space_vectorizer(env.observation_space),

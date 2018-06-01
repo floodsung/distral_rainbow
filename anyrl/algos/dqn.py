@@ -69,8 +69,10 @@ class DQN:
         Returns:
           A dict which can be fed to tf.Session.run().
         """
-        if self.steps_taken < 300000.0:
-            alpha = 0.5
+        if self.steps_taken < 400000:
+            alpha = 1.0 - self.steps_taken/400000.0
+            if alpha < 0.01:
+                alpha = 0.01
         else:
             alpha = 0.01
         obs_vect = self.online_net.obs_vectorizer
@@ -115,6 +117,12 @@ class DQN:
         next_train_step = train_interval
 
         while self.steps_taken < num_steps:
+
+            if self.steps_taken < 20000:
+                player.player.model = self.distill_net
+            else:
+
+                player.player.model = self.online_net
 
             transitions = player.play()
             for trans in transitions:

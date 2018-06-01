@@ -22,7 +22,7 @@ def rainbow_models(session,
                    min_val=-10,
                    max_val=10,
                    sigma0=0.5,
-                   tau = 0.01):
+                   tau = 0.1):
     """
     Create the models used for Rainbow
     (https://arxiv.org/abs/1710.02298).
