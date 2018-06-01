@@ -100,11 +100,11 @@ class DistQNetwork(TFQNetwork):
         policy,values, dists = self.session.run(self.step_outs, feed_dict=feed)
         isnan = any(np.isnan(p) for p in policy[0])
         if not isnan:
-            actions = np.random.choice(self.num_actions,p=policy[0])
+            actions = np.argmax(policy,axis=1)
         else:
-            actions = 4
+            actions = [4]
         return {
-            'actions': [actions],
+            'actions': actions,
             'states': None,
             'policy':policy,
             'action_values': values,
