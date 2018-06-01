@@ -14,8 +14,8 @@ import ray
 import os
 import time
 
-DEVICE = '/device:GPU:2'
-THREAD_NUM = 20
+DEVICE = '/device:GPU:0'
+THREAD_NUM = 28
 NUM_ITER  = 5000000
 
 class DistralAgent():
@@ -35,9 +35,9 @@ class DistralAgent():
                                   gym_space_vectorizer(self.env.observation_space),
                                   min_val=-200,
                                   max_val=200),
-                        distill_network(sess,
-                                  action_space,
-                                  gym_space_vectorizer(observation_space),
+                        distill_network(self.sess,
+                                  self.env.action_space.n,
+                                  gym_space_vectorizer(self.env.observation_space),
                                   min_val=-200,
                                   max_val=200))
         self.player = NStepPlayer(BatchedPlayer(self.env, self.dqn.online_net), 3)
@@ -118,8 +118,8 @@ def main():
                                   min_val=-200,
                                   max_val=200),
                         distill_network(sess,
-                                  action_space,
-                                  gym_space_vectorizer(observation_space),
+                                  env.action_space.n,
+                                  gym_space_vectorizer(env.observation_space),
                                   min_val=-200,
                                   max_val=200))
     sess.run(tf.global_variables_initializer())
