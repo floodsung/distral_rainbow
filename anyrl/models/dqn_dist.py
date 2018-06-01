@@ -49,7 +49,6 @@ def distill_network(session,
     return maker('distill')
 
 def rainbow_models(session,
-                   index,
                    num_actions,
                    obs_vectorizer,
                    num_atoms=51,
