@@ -53,7 +53,7 @@ class DQN:
         self.update_target = tf.group(*assigns)
 
         self.optim = tf.train.AdamOptimizer(learning_rate=1e-4, epsilon=1.5e-4).minimize(self.loss)
-        distill_optim = tf.train.AdamOptimizer(learning_rate=1e-4, epsilon=1.5e-4)
+        distill_optim = tf.train.AdamOptimizer(learning_rate=1e-3, epsilon=1.5e-4)
         self.distill_grads = distill_optim.compute_gradients(self.distill_loss)
         self.train_distill_policy = distill_optim.apply_gradients(self.distill_grads)
 

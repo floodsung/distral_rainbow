@@ -81,6 +81,29 @@ def nature_cnn(obs_batch, dense=tf.layers.dense):
     flat_in = tf.reshape(cnn_3, (tf.shape(cnn_3)[0], int(flat_size)))
     return dense(flat_in, 512, **conv_kwargs)
 
+def larger_cnn(obs_batch, dense=tf.layers.dense):
+    """
+    Apply the CNN architecture from the Nature DQN paper.
+
+    The result is a batch of feature vectors.
+    """
+    conv_kwargs = {
+        'activation': tf.nn.relu,
+        'kernel_initializer': tf.orthogonal_initializer(gain=math.sqrt(2))
+    }
+    with tf.variable_scope('layer_1'):
+        cnn_1 = tf.layers.conv2d(obs_batch, 64, 8, 4, **conv_kwargs)
+    with tf.variable_scope('layer_2'):
+        cnn_2 = tf.layers.conv2d(cnn_1, 128, 4, 2, **conv_kwargs)
+    with tf.variable_scope('layer_3'):
+        cnn_3 = tf.layers.conv2d(cnn_2, 128, 3, 1, **conv_kwargs)
+    with tf.variable_scope('layer_4'):
+        cnn_4 = tf.layers.conv2d(cnn_3, 64, 2, 1, **conv_kwargs)
+    flat_size = product([x.value for x in cnn_4.get_shape()[1:]])
+    flat_in = tf.reshape(cnn_4, (tf.shape(cnn_4)[0], int(flat_size)))
+    output,noisy_weight,noisy_bias = dense(flat_in, 512, **conv_kwargs)
+    return output
+
 def product(vals):
     """
     Compute the product of values in a list-like object.

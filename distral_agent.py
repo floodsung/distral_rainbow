@@ -3,7 +3,7 @@ import tensorflow as tf
 from anyrl.algos import DQN
 from anyrl.envs import BatchedGymEnv
 from anyrl.envs.wrappers import BatchedFrameStack
-from anyrl.models import rainbow_models
+from anyrl.models import rainbow_models,distill_network
 from anyrl.rollouts import BatchedPlayer, PrioritizedReplayBuffer, NStepPlayer
 from anyrl.spaces import gym_space_vectorizer
 
@@ -14,6 +14,7 @@ import ray
 import os
 import time
 
+DEVICE = '/device:GPU:2'
 THREAD_NUM = 20
 NUM_ITER  = 5000000
 
@@ -33,6 +34,11 @@ class DistralAgent():
                                   self.env.action_space.n,
                                   gym_space_vectorizer(self.env.observation_space),
                                   min_val=-200,
+                                  max_val=200),
+                        distill_network(sess,
+                                  action_space,
+                                  gym_space_vectorizer(observation_space),
+                                  min_val=-200,
                                   max_val=200))
         self.player = NStepPlayer(BatchedPlayer(self.env, self.dqn.online_net), 3)
         self.sess.run(tf.global_variables_initializer())
@@ -47,6 +53,11 @@ class DistralAgent():
         self.handle_ep=lambda steps, rew: None
         self.next_target_update = self.target_interval
         self.next_train_step = self.train_interval
+
+        self.grad_names = []
+        for grad in self.dqn.distill_grads:
+            if grad[0] != None:
+                self.grad_names.append(grad[0])
 
 
     def init_env(self,env_index):
@@ -75,16 +86,11 @@ class DistralAgent():
                     self.next_train_step = self.steps_taken + self.train_interval
                     batch = self.replay_buffer.sample(self.batch_size)
 
-                    grad_names = []
-                    for grad in self.dqn.distill_grads:
-                        if grad[0] != None:
-                            grad_names.append(grad[0])
-
-                    _,losses,distill_grads,distill_loss = self.sess.run((self.dqn.optim,self.dqn.losses,grad_names,self.dqn.distill_loss),
+                    _,losses,distill_grads,distill_loss = self.sess.run((self.dqn.optim,self.dqn.losses,self.grad_names,self.dqn.distill_loss),
                                          feed_dict=self.dqn.feed_dict(batch))
                     self.replay_buffer.update_weights(batch, losses)
-                    # if self.steps_taken % 100 == 0:
-                    #     print("steps:",self.steps_taken,"distill_loss:",distill_loss)
+                    if self.steps_taken % 1000 == 0:
+                         print("steps:",self.steps_taken,"distill_loss:",distill_loss)
                 if self.steps_taken >= self.next_target_update:
                     self.next_target_update = self.steps_taken + self.target_interval
                     self.sess.run(self.dqn.update_target)
@@ -105,9 +111,15 @@ def main():
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True # pylint: disable=E1101
     sess = tf.Session(config=config)
-    local_dqn = DQN(*rainbow_models(sess,
+    with tf.device(DEVICE):
+        local_dqn = DQN(*rainbow_models(sess,
                                   env.action_space.n,
                                   gym_space_vectorizer(env.observation_space),
+                                  min_val=-200,
+                                  max_val=200),
+                        distill_network(sess,
+                                  action_space,
+                                  gym_space_vectorizer(observation_space),
                                   min_val=-200,
                                   max_val=200))
     sess.run(tf.global_variables_initializer())
@@ -132,9 +144,7 @@ def main():
         if iteration % 1000 == 0:
             print("iter:",iteration)
 
-        weights_id = ray.put(weights)
-
-        gradients_ids = [agent.train.remote(weights_id) for agent in agents]
+        gradients_ids = [agent.train.remote(weights) for agent in agents]
 
         gradients_list = ray.get(gradients_ids)
 

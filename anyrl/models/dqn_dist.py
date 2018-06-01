@@ -11,11 +11,45 @@ import tensorflow as tf
 
 from .base import TFQNetwork
 from .dqn_scalar import noisy_net_dense
-from .util import nature_cnn, simple_mlp, take_vector_elems
+from .util import nature_cnn, simple_mlp, take_vector_elems,larger_cnn
+import pdb
 
 # pylint: disable=R0913
 
+def distill_network(session,
+                   num_actions,
+                   obs_vectorizer,
+                   num_atoms=51,
+                   min_val=-10,
+                   max_val=10,
+                   sigma0=0.5,
+                   tau = 0.2,
+                   alpha=0.9):
+    """
+    Create the models used for Rainbow
+    (https://arxiv.org/abs/1710.02298).
+
+    Args:
+      session: the TF session.
+      num_actions: size of action space.
+      obs_vectorizer: observation vectorizer.
+      name: name for this model.
+      num_atoms: number of distribution atoms.
+      min_val: minimum atom value.
+      max_val: maximum atom value.
+      sigma0: initial Noisy Net noise.
+
+    Returns:
+      A tuple (online, target).
+    """
+    maker = lambda name: LargerDistQNetwork(session, num_actions, obs_vectorizer, name,
+                                            num_atoms, min_val, max_val,tau=tau,alpha=alpha,dueling=True,
+                                            dense=partial(noisy_net_dense, sigma0=sigma0))
+
+    return maker('distill')
+
 def rainbow_models(session,
+                   index,
                    num_actions,
                    obs_vectorizer,
                    num_atoms=51,
@@ -47,7 +81,7 @@ def rainbow_models(session,
     # distill_maker = lambda name: NatureDistQNetwork(session, num_actions, obs_vectorizer, name,
     #                                         num_atoms, min_val, max_val,tau=tau,alpha=alpha,dueling=True,
     #                                         dense=tf.layers.dense)
-    return maker('online'), maker('target'),maker('distill')
+    return maker('online'), maker('target')
 
 class DistQNetwork(TFQNetwork):
     """
@@ -86,10 +120,11 @@ class DistQNetwork(TFQNetwork):
             self.step_obs_ph = tf.placeholder(self.input_dtype,
                                               shape=(None,) + obs_vectorizer.out_shape)
             self.step_base_out = self.base(self.step_obs_ph)
-            log_probs = self.value_func(self.step_base_out)
-            values = self.dist.mean(log_probs)
+            probs_raw = self.value_func(self.step_base_out)
+            probs = tf.nn.softmax(probs_raw)
+            values = self.dist.mean(probs)
             policy = self.policy_func(values)
-            self.step_outs = (policy , values, log_probs)
+            self.step_outs = (policy , values, probs)
         self.variables = [v for v in tf.trainable_variables() if v not in old_vars]
 
     @property
@@ -101,8 +136,14 @@ class DistQNetwork(TFQNetwork):
 
     def step(self, observations, states):
         feed = self.step_feed_dict(observations, states)
-        policy,values, dists = self.session.run(self.step_outs, feed_dict=feed)
-        actions = np.random.choice(self.num_actions,p=policy[0])
+        policy, values, dists = self.session.run(self.step_outs, feed_dict=feed)
+        isnan = any(np.isnan(p) for p in policy[0])
+        if not isnan:
+            actions = np.random.choice(self.num_actions,p=policy[0])
+        else:
+            pdb.set_trace()
+            actions = 4
+
         return {
             'actions': [actions],
             'states': None,
@@ -113,32 +154,34 @@ class DistQNetwork(TFQNetwork):
 
     def transition_loss(self, target_net, log_distill_policy, obses, actions, rews, new_obses, terminals, discounts):
         with tf.variable_scope(self.name, reuse=True):
-            values = self.dist.mean(self.value_func(self.base(new_obses)))
+            features = self.base(new_obses)
+            values = self.dist.mean(tf.nn.softmax(self.value_func(features)))
         policies = self.policy_func(values)
 
         distill_kl = -self.cross_entropy_func(policies,tf.stop_gradient(log_distill_policy))
 
         with tf.variable_scope(target_net.name, reuse=True):
-            target_preds = target_net.value_func(target_net.base(new_obses))
+            target_features = target_net.base(new_obses)
+            target_preds = tf.nn.softmax(target_net.value_func(target_features))
             target_preds = tf.where(terminals,
-                                    tf.zeros_like(target_preds) - log(self.dist.num_atoms),
+                                    tf.ones_like(target_preds)/self.dist.num_atoms,
                                     target_preds)
             target_values = self.dist.mean(target_preds)
         entropy = self.entropy_func(target_values)
         discounts = tf.where(terminals, tf.zeros_like(discounts), discounts)
 
         tile_policies = tf.transpose(tf.reshape(tf.tile(policies,multiples=(1,self.dist.num_atoms)),(tf.shape(policies)[0],self.dist.num_atoms, self.num_actions)),perm=[0,2,1])
-        target_preds = tf.reduce_sum(tf.exp(target_preds)*tile_policies,axis=1)
-        target_dists = self.dist.add_rewards(target_preds,rews, discounts,entropy,self.tau,distill_kl,self.alpha)
+        target_preds_mean = tf.reduce_sum(target_preds*tile_policies,axis=1)
+        target_dists = self.dist.add_rewards(target_preds_mean,rews, discounts,entropy,self.tau,distill_kl,self.alpha)
 
-        distill_loss = tf.reduce_sum(self.cross_entropy_func(tf.stop_gradient(policies),log_distill_policy))
+        distill_loss = tf.reduce_mean(self.cross_entropy_func(tf.stop_gradient(policies),log_distill_policy))
 
 
         with tf.variable_scope(self.name, reuse=True):
-            online_preds = self.value_func(self.base(obses))
+            features = self.base(obses)
+            online_preds = tf.nn.log_softmax(self.value_func(features))
             onlines = take_vector_elems(online_preds, actions)
             return _kl_divergence(tf.stop_gradient(target_dists), onlines),distill_loss
-
 
     @property
     def input_dtype(self):
@@ -171,10 +214,12 @@ class DistQNetwork(TFQNetwork):
         logits = self.dense(feature_batch, self.num_actions * self.dist.num_atoms)
         actions = tf.reshape(logits, (tf.shape(logits)[0], self.num_actions, self.dist.num_atoms))
         if not self.dueling:
-            return tf.nn.log_softmax(actions)
-        values = tf.expand_dims(self.dense(feature_batch, self.dist.num_atoms), axis=1)
+            return actions
+        value_noise = self.dense(feature_batch, self.dist.num_atoms)
+        values = tf.expand_dims(value_noise, axis=1)
         actions -= tf.reduce_mean(actions, axis=1, keepdims=True)
-        return tf.nn.log_softmax(values + actions)
+        return values + actions
+
 
     def policy_func(self,values_batch):
         """
@@ -193,7 +238,8 @@ class DistQNetwork(TFQNetwork):
 
     def log_policy(self,obses):
         with tf.variable_scope(self.name, reuse=True):
-            values = self.dist.mean(self.value_func(self.base(obses)))
+            features = self.base(obses)
+            values = self.dist.mean(tf.nn.softmax(self.value_func(features)))
 
         return tf.nn.log_softmax(1/self.tau * values,axis=1)
 
@@ -204,6 +250,7 @@ class DistQNetwork(TFQNetwork):
         return - tf.reduce_sum(policies * log_policies,axis=1)
 
     def cross_entropy_func(self,policies,log_policies):
+
         return -tf.reduce_sum(policies*log_policies,axis=1)
 
     # pylint: disable=W0613
@@ -273,6 +320,41 @@ class NatureDistQNetwork(DistQNetwork):
         obs_batch = tf.cast(obs_batch, tf.float32) * self.input_scale
         return nature_cnn(obs_batch, dense=self.dense)
 
+class LargerDistQNetwork(DistQNetwork):
+    """
+    A distributional Q-network model based on the Nature
+    DQN paper.
+
+    This is the distributional equivalent of NatureQNetwork.
+    """
+    def __init__(self,
+                 session,
+                 num_actions,
+                 obs_vectorizer,
+                 name,
+                 num_atoms,
+                 min_val,
+                 max_val,
+                 tau,
+                 alpha,
+                 dueling=False,
+                 dense=tf.layers.dense,
+                 input_dtype=tf.uint8,
+                 input_scale=1 / 0xff):
+        self._input_dtype = input_dtype
+        self.input_scale = input_scale
+        super(LargerDistQNetwork, self).__init__(session, num_actions, obs_vectorizer, name,
+                                                 num_atoms, min_val, max_val,tau=tau,alpha=alpha,
+                                                 dueling=dueling, dense=dense)
+
+    @property
+    def input_dtype(self):
+        return self._input_dtype
+
+    def base(self, obs_batch):
+        obs_batch = tf.cast(obs_batch, tf.float32) * self.input_scale
+        return larger_cnn(obs_batch, dense=self.dense)
+
 class ActionDist:
     """
     A discrete reward distribution.
@@ -289,9 +371,8 @@ class ActionDist:
         """Get the reward values for each atom."""
         return [self.min_val + i * self._delta for i in range(0, self.num_atoms)]
 
-    def mean(self, log_probs):
+    def mean(self, probs):
         """Get the mean rewards for the distributions."""
-        probs = tf.exp(log_probs)
         return tf.reduce_sum(probs * tf.constant(self.atom_values(), dtype=probs.dtype), axis=-1)
 
     def add_rewards(self, probs, rewards, discounts,entropy, tau, distill_kl,alpha):
