@@ -115,9 +115,6 @@ class DistQNetwork(TFQNetwork):
         with tf.variable_scope(self.name, reuse=True):
             values = self.dist.mean(tf.nn.softmax(self.value_func(self.base(new_obses))))
             max_actions = tf.argmax(values, axis=1, output_type=tf.int32)
-        policies = self.policy_func(values)
-
-        distill_kl = -self.cross_entropy_func(policies,tf.stop_gradient(log_distill_policy))
 
         with tf.variable_scope(target_net.name, reuse=True):
             target_preds = tf.nn.softmax(target_net.value_func(target_net.base(new_obses)))
@@ -126,7 +123,7 @@ class DistQNetwork(TFQNetwork):
                                     target_preds)
         discounts = tf.where(terminals, tf.zeros_like(discounts), discounts)
 
-        target_dists = self.dist.add_rewards(take_vector_elems(target_preds, max_actions),rews, discounts,self.tau,distill_kl,alpha)
+        target_dists = self.dist.add_rewards(take_vector_elems(target_preds, max_actions),rews, discounts)
 
         distill_loss = tf.reduce_mean(self.cross_entropy_func(tf.stop_gradient(policies),log_distill_policy))
 
@@ -288,7 +285,7 @@ class ActionDist:
         """Get the mean rewards for the distributions."""
         return tf.reduce_sum(probs * tf.constant(self.atom_values(), dtype=probs.dtype), axis=-1)
 
-    def add_rewards(self, probs, rewards, discounts, tau, distill_kl,alpha):
+    def add_rewards(self, probs, rewards, discounts):
         """
         Compute new distributions after adding rewards to
         old distributions.
@@ -304,8 +301,8 @@ class ActionDist:
         """
         atom_rews = tf.tile(tf.constant([self.atom_values()], dtype=probs.dtype),
                             tf.stack([tf.shape(rewards)[0], 1]))
-        fuzzy_idxs = tf.expand_dims(rewards + tau*alpha*discounts*distill_kl, axis=1) + tf.expand_dims(discounts, axis=1) * atom_rews
-        fuzzy_idxs = tf.clip_by_value(fuzzy_idxs,self.min_val,self.max_val)
+        fuzzy_idxs = tf.expand_dims(rewards, axis=1) + tf.expand_dims(discounts, axis=1) * atom_rews
+        #fuzzy_idxs = tf.clip_by_value(fuzzy_idxs,self.min_val,self.max_val)
         fuzzy_idxs = (fuzzy_idxs - self.min_val) / self._delta #b
 
         # If the position were exactly 0, rounding up
