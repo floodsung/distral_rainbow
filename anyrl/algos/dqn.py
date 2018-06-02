@@ -113,7 +113,7 @@ class DQN:
 
         while self.steps_taken < num_steps:
 
-            if self.steps_taken < 50000:
+            if self.steps_taken < 20000:
                 player.player.model = self.distill_net
             else:
 
